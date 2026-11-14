@@ -88,14 +88,25 @@ foreign libgit2 {
 	index_conflict_get :: proc(ancestor, ours, theirs: ^^Index_Entry, index: ^Index, path: cstring) -> c.int ---
 	index_conflict_add :: proc(index: ^Index, ancestor, ours, theirs: ^Index_Entry) -> c.int ---
 	index_write_tree :: proc(out: ^Oid, index: ^Index) -> c.int ---
+	// The entry is copied into the index (stage 0); unset stat data forces a rehash on the next status.
+	index_add :: proc(index: ^Index, source_entry: ^Index_Entry) -> c.int ---
 	tree_lookup :: proc(out: ^^Tree, repo: ^Repository, id: ^Oid) -> c.int ---
 	tree_free :: proc(tree: ^Tree) ---
+	// Owning entry (release with tree_entry_free); ENOTFOUND when the path is absent.
+	tree_entry_bypath :: proc(out: ^^Tree_Entry, root: ^Tree, path: cstring) -> c.int ---
+	tree_entry_free :: proc(entry: ^Tree_Entry) ---
+	tree_entry_id :: proc(entry: ^Tree_Entry) -> ^Oid ---
+	tree_entry_filemode :: proc(entry: ^Tree_Entry) -> c.int ---
 
 	diff_options_init :: proc(options: ^Diff_Options, version: c.uint) -> c.int ---
 	diff_find_options_init :: proc(options: ^Diff_Find_Options, version: c.uint) -> c.int ---
 	diff_tree_to_tree :: proc(out: ^^Diff, repo: ^Repository, old_tree, new_tree: ^Tree, options: ^Diff_Options) -> c.int ---
 	// Like `git diff HEAD`: staged and unstaged changes against a tree (nil = empty tree).
 	diff_tree_to_workdir_with_index :: proc(out: ^^Diff, repo: ^Repository, old_tree: ^Tree, options: ^Diff_Options) -> c.int ---
+	// Staged changes (`git diff --cached`): a tree (nil = empty tree) against the index.
+	diff_tree_to_index :: proc(out: ^^Diff, repo: ^Repository, old_tree: ^Tree, index: ^Index, options: ^Diff_Options) -> c.int ---
+	// Unstaged changes (`git diff`): the index against the working files.
+	diff_index_to_workdir :: proc(out: ^^Diff, repo: ^Repository, index: ^Index, options: ^Diff_Options) -> c.int ---
 	diff_find_similar :: proc(diff: ^Diff, options: ^Diff_Find_Options) -> c.int ---
 	diff_num_deltas :: proc(diff: ^Diff) -> c.size_t ---
 	// Delta/hunk/line pointers borrow their owning diff/patch. Copy before freeing.

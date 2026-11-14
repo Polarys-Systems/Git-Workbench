@@ -90,6 +90,30 @@ are listed as **U** with their full content; ignored files are not shown.
 Before the first commit, files are compared with an empty tree. **Reload**
 rescans and keeps the selected file. Viewing never stages or writes anything.
 
+### Stage and commit
+
+Each file in the working tree view shows whether it is **Staged**, **Partly
+staged** (staged, then edited again), or **Not staged**. Check the files you
+want (the box above the list checks or clears all of them), then:
+
+- **Stage** adds them to the index like `git add -A -- <files>`: new and
+  modified files are added, deleted files are removed, and a rename stages both
+  its old and new path.
+- **Unstage** returns their index entries to the last commit like
+  `git restore --staged -- <files>`; working files are not changed.
+
+With nothing checked, Stage and Unstage act on the file being viewed. Other
+files' staged and unstaged work is never touched. Conflicted files must be
+resolved in the Merge editor first.
+
+Type a message in the box beside **Commit** (the first line is the summary)
+and press **Commit** to commit exactly what is staged, as the name and email
+from Preferences (author and committer), on the current branch. An empty
+message or an empty index is refused. Committing after resolving a merge,
+revert, or cherry-pick concludes it as `git commit` would; during a rebase,
+finish with Git. Git hooks are not run and commits are not signed. History
+and the working tree reload afterwards, and the menu bar confirms the commit.
+
 ### Sync: push, force push with lease, and pull
 
 **Sync** in the top menu shows the checked-out branch, its upstream, and how
@@ -153,7 +177,7 @@ index changes require a reload. Finish the merge/rebase/cherry-pick with Git.
 
 This is a UTF-8 text conflict editor. Binary/non-UTF-8 files, missing files,
 symlinks, and submodules show an explanation and require external resolution.
-It does not start merges or create commits.
+It does not start merges; commit the resolution from **Working tree**.
 
 The welcome heading uses the bundled Gambarino font with synthesized bold,
 since the supplied family contains only the Regular face.
@@ -210,6 +234,8 @@ odin test ./src/app -linker:lld -define:TEXT_GPU_TESTS=true
   merge and sync views; `gitaris_controls.odin` holds their shared controls.
 - `src/workspace/sync.odin`: upstream status, the `pull.rebase` setting, and the
   background push/pull worker (its own repository handle on a thread).
+- `src/workspace/stage.odin`: per-file stage state, Stage/Unstage of selected
+  files, and committing the index with the configured identity.
 - `src/app/*_tests.odin`: application and rendering checks alongside the code.
 - `src/workspace`: repository operations and persisted configuration.
 - `src/xlsx`: ZIP and streaming XML readers that turn workbooks into diffable

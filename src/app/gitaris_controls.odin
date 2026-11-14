@@ -42,6 +42,20 @@ gitaris_row_button :: proc(ctx: ^ui.UiContext, face: ^font_core.Face, id: string
 	return result == .SUBMIT
 }
 
+// A square checkbox without a label. Drawn after a row button, it receives the
+// click itself (topmost hit testing), so checking never selects the row.
+gitaris_check :: proc(ctx: ^ui.UiContext, face: ^font_core.Face, id: string, value: ^bool,
+	rect: ui.Rect2d, scale: f32) -> bool {
+	style := gitaris_control_style(face, scale)
+	style.padding = 4 * scale
+	style.radius = 5 * scale
+	style.text_color = TEMPLATE_MUTED // Frame of the check square.
+	ui.style_push(ctx, style)
+	result := ui.check(ctx, "", value, template_rect(rect, scale), id = id)
+	ui.style_pop(ctx)
+	return result == .MODIFIED
+}
+
 gitaris_field :: proc(ctx: ^ui.UiContext, face: ^font_core.Face, id, label, placeholder: string,
 	value: ^strings.Builder, rect: ui.Rect2d, scale: f32, secret := false) -> ui.UiResult {
 	if label != "" do template_label(ctx, face, label, {rect.x, rect.y - 28, rect.width, 24}, 13, TEMPLATE_TEXT, scale)

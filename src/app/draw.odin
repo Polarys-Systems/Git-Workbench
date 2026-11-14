@@ -97,7 +97,7 @@ draw_ui :: proc(batch: ^Text_Batch, ctx: ^ui.UiContext) -> (ok: bool) {
 			color := box.style.text_color
 			if !draw_rect(batch, r, color, color) do return false
 			r = {r.x + 2, r.y + 2, r.width - 4, r.height - 4}
-			color = box.icon == .CHECK ? [4]f32{0.3, 0.65, 1, 1} : box.style.color_top
+			color = box.icon == .CHECK ? box.style.focus_color : box.style.color_top
 			if !draw_rect(batch, r, color, color) do return false
 		}
 		if len(box.text.buf) > 0 {

@@ -2,6 +2,7 @@ package app
 
 import "core:fmt"
 import "core:path/filepath"
+import "core:strings"
 
 import font_core "../font"
 import "../git"
@@ -30,6 +31,41 @@ gitaris_file_status :: proc(file: workspace.Changed_File) -> (string, string, [4
 	}
 }
 
+gitaris_stage_status :: proc(file: workspace.Changed_File) -> (string, [4]f32) {
+	if file.staged && file.unstaged do return "Partly staged", TEMPLATE_ACCENT
+	if file.staged do return "Staged", GITARIS_ADD_TEXT
+	return "Not staged", TEMPLATE_MUTED
+}
+
+// Message box and Commit button for the working tree view. Commits exactly the
+// staged files. Returns true when a commit replaced the model this frame.
+gitaris_commit_form :: proc(ctx: ^ui.UiContext, face: ^font_core.Face, state: ^Gitaris, x, y, w, scale: f32) -> bool {
+	model := &state.model
+	style := gitaris_control_style(face, scale)
+	style.hover_color, style.active_color = TEMPLATE_CARD, TEMPLATE_CARD
+	ui.style_push(ctx, style)
+	ui.textbox(ctx, "commit-message", &state.commit_message, template_rect({x, y, w, 82}, scale))
+	ui.style_pop(ctx)
+	if len(state.commit_message.buf) == 0 {
+		template_label(ctx, face, "Commit message · the first line is the summary", {x + 13, y + 6, w - 26, 26}, 14, TEMPLATE_MUTED, scale)
+	}
+	staged := 0
+	for file in model.changes.files do if file.staged do staged += 1
+	info := staged > 0 ? fmt.tprintf("%d staged file%s · as %s", staged, staged == 1 ? "" : "s", model.config.username) : "Nothing staged yet"
+	template_label(ctx, face, info, {x, y + 90, w - 128, 34}, 12, staged > 0 ? TEMPLATE_TEXT : TEMPLATE_MUTED, scale)
+	if !gitaris_button(ctx, face, "Commit", {x + w - 120, y + 90, 120, 34}, scale, true, id = "commit-staged") do return false
+	message := strings.to_string(state.commit_message)
+	err := workspace.commit_staged(model, message)
+	gitaris_error(state, err)
+	if err != "" do return true
+	summary := strings.trim_space(message)
+	if newline := strings.index_byte(summary, '\n'); newline >= 0 do summary = strings.trim_space(summary[:newline])
+	gitaris_notice(state, fmt.tprintf("Committed: %s", summary))
+	strings.builder_reset(&state.commit_message)
+	ctx.caret = 0
+	return true
+}
+
 gitaris_changes_ui :: proc(ctx: ^ui.UiContext, face, title, mono: ^font_core.Face,
 	state: ^Gitaris, x, cw, h, scale: f32) {
 	model := &state.model
@@ -48,13 +84,16 @@ gitaris_changes_ui :: proc(ctx: ^ui.UiContext, face, title, mono: ^font_core.Fac
 			if gitaris_button(ctx, face, "Reload", {x + cw - 92, top + 51, 84, 34}, scale) {
 				gitaris_error(state, workspace.select_working_changes(model))
 			}
-			template_label(ctx, title, "Uncommitted changes", {x + 8, top + 99, cw - 16, 40}, 26, TEMPLATE_TEXT, scale)
+			// The left half describes the changes; the right half holds the commit form.
+			lw := cw * 0.5 - 16
+			template_label(ctx, title, "Uncommitted changes", {x + 8, top + 99, lw, 40}, 26, TEMPLATE_TEXT, scale)
 			branch := model.sync.branch != "" ? model.sync.branch : "Detached HEAD"
 			summary := fmt.tprintf("%s  /  %d changed files", branch, len(changes.files))
-			template_label(ctx, face, summary, {x + 8, top + 146, cw - 16, 26}, 14, TEMPLATE_MUTED, scale)
+			template_label(ctx, face, summary, {x + 8, top + 146, lw, 26}, 14, TEMPLATE_MUTED, scale)
 			base := changes.hash != "" ? fmt.tprintf("HEAD %s", changes.hash) : "No commits yet"
-			template_label(ctx, mono, base, {x + 8, top + 177, cw - 16, 24}, 12, TEMPLATE_MUTED, scale)
-			template_label(ctx, face, "Compared with the last commit · staged, unstaged and untracked files · nothing is staged by viewing", {x + 8, top + 209, cw - 16, 24}, 11, TEMPLATE_MUTED, scale)
+			template_label(ctx, mono, base, {x + 8, top + 177, lw, 24}, 12, TEMPLATE_MUTED, scale)
+			template_label(ctx, face, "Compared with the last commit · viewing never stages", {x + 8, top + 209, lw, 24}, 11, TEMPLATE_MUTED, scale)
+			if gitaris_commit_form(ctx, face, state, x + cw * 0.5, top + 95, cw * 0.5 - 8, scale) do return
 		} else {
 			template_label(ctx, face, "COMMIT CHANGES", {x + 148, top + 54, cw - 156, 26}, 11, TEMPLATE_MUTED, scale)
 			commit := model.commits[changes.commit_index]
@@ -76,20 +115,58 @@ gitaris_changes_ui :: proc(ctx: ^ui.UiContext, face, title, mono: ^font_core.Fac
 	dw := cw - fw - 32
 	{
 		ui.begin_window(ctx, template_rect({x + 8, py, fw, h - py - 64}, scale), "commit-files")
-		template_label(ctx, title, "Changed files", {x + 16, py + 4, fw - 58, 28}, 16, TEMPLATE_TEXT, scale)
+		// Working changes get a check per file plus Stage/Unstage for the checked
+		// files (or the viewed file when none is checked).
+		working := changes.working
+		title_x: f32 = working ? 46 : 16
+		if working {
+			all := true
+			for file in changes.files do all = all && file.selected
+			if gitaris_check(ctx, face, "check-all-files", &all, {x + 16, py + 7, 22, 22}, scale) {
+				for &file in changes.files do file.selected = all
+			}
+		}
+		template_label(ctx, title, "Changed files", {x + title_x, py + 4, fw - title_x - 42, 28}, 16, TEMPLATE_TEXT, scale)
 		template_label(ctx, face, fmt.tprintf("%d", len(changes.files)), {x + fw - 34, py + 4, 34, 28}, 12, TEMPLATE_MUTED, scale, {.RIGHT})
 		template_box(ctx, {x + 8, py + 42, fw, 1}, TEMPLATE_LINE, 0, scale)
-		viewport := ui.Rect2d{x + 8, py + 52, fw, h - py - 124}
+		list_top: f32 = 52
+		if working {
+			checked := 0
+			for file in changes.files do if file.selected do checked += 1
+			bw := (fw - 8) * 0.5
+			targets := workspace.stage_targets(changes^)
+			if gitaris_button(ctx, face, "Stage", {x + 8, py + 52, bw, 30}, scale, id = "stage-files") {
+				gitaris_error(state, workspace.stage_files(model, targets[:]))
+				return
+			}
+			if gitaris_button(ctx, face, "Unstage", {x + 16 + bw, py + 52, bw, 30}, scale, id = "unstage-files") {
+				gitaris_error(state, workspace.unstage_files(model, targets[:]))
+				return
+			}
+			hint := checked > 0 ? fmt.tprintf("Applies to %d checked file%s", checked, checked == 1 ? "" : "s") : "Applies to the viewed file · check files to pick several"
+			template_label(ctx, face, hint, {x + 12, py + 86, fw - 12, 18}, 10, TEMPLATE_MUTED, scale)
+			list_top = 110
+		}
+		viewport := ui.Rect2d{x + 8, py + list_top, fw, h - py - 72 - list_top}
 		first, last, offset := gitaris_scroll_begin(ctx, viewport, len(changes.files), 58, scale)
 		chosen := -1
 		for i in first..<last {
-			file := changes.files[i]
+			file := &changes.files[i]
 			y := viewport.y + f32(i) * 58 - offset
 			if gitaris_row_button(ctx, face, fmt.tprintf("%d:%s", i, file.path), {viewport.x, y, fw - 7, 54}, i == changes.file.index, scale) do chosen = i
-			badge, _, color := gitaris_file_status(file)
-			template_label(ctx, mono, badge, {viewport.x + 9, y + 8, 20, 26}, 13, color, scale)
-			template_label(ctx, face, filepath.base(file.path), {viewport.x + 36, y + 5, fw - 51, 26}, 13, TEMPLATE_TEXT, scale)
-			template_label(ctx, face, file.path, {viewport.x + 36, y + 30, fw - 51, 18}, 10, TEMPLATE_MUTED, scale)
+			badge, _, color := gitaris_file_status(file^)
+			if !working {
+				template_label(ctx, mono, badge, {viewport.x + 9, y + 8, 20, 26}, 13, color, scale)
+				template_label(ctx, face, filepath.base(file.path), {viewport.x + 36, y + 5, fw - 51, 26}, 13, TEMPLATE_TEXT, scale)
+				template_label(ctx, face, file.path, {viewport.x + 36, y + 30, fw - 51, 18}, 10, TEMPLATE_MUTED, scale)
+				continue
+			}
+			gitaris_check(ctx, face, fmt.tprintf("check:%s", file.path), &file.selected, {viewport.x + 6, y + 16, 22, 22}, scale)
+			template_label(ctx, mono, badge, {viewport.x + 34, y + 8, 18, 26}, 13, color, scale)
+			template_label(ctx, face, filepath.base(file.path), {viewport.x + 54, y + 5, fw - 69, 26}, 13, TEMPLATE_TEXT, scale)
+			stage, stage_color := gitaris_stage_status(file^)
+			template_label(ctx, face, stage, {viewport.x + 54, y + 30, 82, 18}, 10, stage_color, scale)
+			template_label(ctx, face, file.path, {viewport.x + 138, y + 30, fw - 153, 18}, 10, TEMPLATE_MUTED, scale)
 		}
 		gitaris_scroll_end(ctx, viewport, scale)
 		if chosen >= 0 && chosen != changes.file.index {

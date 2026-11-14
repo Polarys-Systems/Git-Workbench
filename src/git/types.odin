@@ -8,6 +8,7 @@ Remote           :: struct {}
 Index            :: struct {}
 Index_Conflict_Iterator :: struct {}
 Tree             :: struct {}
+Tree_Entry       :: struct {}
 Commit           :: struct {}
 Revwalk          :: struct {}
 Object           :: struct {}
@@ -24,6 +25,15 @@ Diff_Similarity_Metric :: struct {}
 Commit_Builder   :: struct {}
 Rebase           :: struct {}
 Blob             :: struct {}
+
+// repository_state results (git_repository_state_t). Later values are sequences,
+// bisect, rebases and mailbox application.
+REPOSITORY_STATE_NONE       :: c.int(0)
+REPOSITORY_STATE_MERGE      :: c.int(1)
+REPOSITORY_STATE_REVERT     :: c.int(2)
+REPOSITORY_STATE_CHERRYPICK :: c.int(4)
+
+FILEMODE_TREE :: c.int(0o040000)
 
 OK              :: c.int(0)
 ERROR           :: c.int(-1)

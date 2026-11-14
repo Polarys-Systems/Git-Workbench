@@ -18,8 +18,10 @@ Gitaris :: struct {
 	// Unlocks an encrypted SSH key for push/pull. Kept in memory for this
 	// session only, never saved; cleared when the key location changes.
 	passphrase: strings.Builder,
+	// Draft for the next commit in the working tree view; cleared once committed.
+	commit_message: strings.Builder,
 	error: string,
-	notice: string, // Last successful push/pull, shown in the menu bar and Sync.
+	notice: string, // Last successful push/pull/commit, shown in the menu bar and Sync.
 	remote: workspace.Remote_Task,
 	force_armed: bool, // Force push needs a second, confirming click.
 	ready: bool,
@@ -106,6 +108,7 @@ gitaris_init :: proc(state: ^Gitaris) {
 	state.email = strings.builder_make()
 	state.search = strings.builder_make()
 	state.passphrase = strings.builder_make()
+	state.commit_message = strings.builder_make()
 	config, err := workspace.config_load()
 	defer workspace.config_destroy(&config)
 	gitaris_set_field(&state.ssh, config.ssh_key_path)
@@ -133,6 +136,7 @@ gitaris_destroy :: proc(state: ^Gitaris) {
 	strings.builder_destroy(&state.search)
 	gitaris_forget_passphrase(state)
 	strings.builder_destroy(&state.passphrase)
+	strings.builder_destroy(&state.commit_message)
 	delete(state.error)
 }
 

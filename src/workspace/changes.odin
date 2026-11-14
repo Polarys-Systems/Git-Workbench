@@ -29,6 +29,11 @@ Changed_File :: struct {
 	path, old_path: string,
 	status: c.int,
 	old_mode, new_mode: u16,
+	// Working changes only: whether the index differs from HEAD (staged) and
+	// whether the working file differs from the index (unstaged). Both can be set.
+	staged, unstaged: bool,
+	// Working changes only: checked in the file list for Stage/Unstage.
+	selected: bool,
 }
 
 File_Changes :: struct {
@@ -433,6 +438,13 @@ select_working_changes :: proc(model: ^Model) -> string {
 		return git_error("Could not compare the working tree")
 	}
 	if err := collect_changed_files(&next, git.DIFF_FIND_RENAMES | git.DIFF_FIND_FOR_UNTRACKED); err != "" do return err
+	if err := load_stage_state(model.repo, old_tree, &next); err != "" do return err
+	// Keep checked files checked across reloads, including after staging them.
+	if model.changes.working {
+		for &file in next.files {
+			for previous in model.changes.files do if previous.selected && previous.path == file.path do file.selected = true
+		}
+	}
 	if len(next.files) > 0 {
 		// Keep the previously viewed file selected across reloads.
 		first := 0
