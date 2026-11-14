@@ -1,0 +1,2 @@
+# Fixtures are byte-exact: line-ending conversion would change their contents.
+src/xlsx/testdata/** -text

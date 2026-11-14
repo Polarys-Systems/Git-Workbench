@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:AZ7"/><sheetData>
+<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" t="s"><v>2</v></c></row>
+<row r="2"><c r="A2" t="s"><v>3</v></c><c r="B2"><v>12.5</v></c><c r="C2"><f t="shared" ref="C2:C3" si="0">B2*$B$2+SUM(B2:B3)</f><v>156.25</v></c></row>
+<row r="3"><c r="A3" t="inlineStr"><is><t>Bob &amp; Co</t></is></c><c r="B3"><v>3</v></c><c r="C3"><f t="shared" si="0"/><v>40.5</v></c><c r="D3" t="b"><v>1</v></c></row>
+<row r="4" spans="1:3"><c r="A4" s="1"/></row>
+<row r="7"><c r="B7" t="str"><f>A1&amp;"x"</f><v>Namex</v></c><c r="AZ7" t="e"><v>#N/A</v></c></row>
+</sheetData><mergeCells count="1"><mergeCell ref="A1:B1"/></mergeCells></worksheet>

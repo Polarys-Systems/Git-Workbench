@@ -1,0 +1,11 @@
+*.spall
+*.sublime-workspace
+*.sublime-project
+*.spv
+TransactionViewer
+TransactionsViewer
+TransactionsViewer.exe
+/gitaris.json
+/.gitaris-*.tmp
+/src.exe
+*.pdb
