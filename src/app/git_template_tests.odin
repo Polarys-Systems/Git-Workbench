@@ -8,9 +8,9 @@ import "../ui"
 
 @(test)
 template_fonts_load :: proc(t: ^testing.T) {
-	paths := [?]string{TEMPLATE_BODY_FONT, TEMPLATE_TITLE_FONT, TEMPLATE_ICON_FONT, GITARIS_WELCOME_FONT}
-	for path, i in paths {
-		face, loaded := font_core.face_load_from_file(u32(i), path)
+	fonts := [?][]byte{TEMPLATE_BODY_FONT, TEMPLATE_TITLE_FONT, TEMPLATE_ICON_FONT, GITARIS_WELCOME_FONT}
+	for data, i in fonts {
+		face, loaded := font_core.face_load_from_data(u32(i), data)
 		if !testing.expect(t, loaded) do return
 		defer font_core.face_destroy(&face)
 		glyph, found := font_core.glyph_index(&face, i == 2 ? '\uf401' : 'S')

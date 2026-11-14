@@ -35,7 +35,7 @@ if "%COMPILE_SHADERS%"=="1" (
 
 rem libgit2 is linked through a GNU import archive (libgit2.dll.a), which the
 rem default RAD linker cannot handle, so LLD is required.
-"%ODIN%" build ./src -debug -linker:lld -out:TransactionsViewer.exe || exit /b 1
+"%ODIN%" build ./src -debug -linker:lld -out:Git-Workbench.exe || exit /b 1
 
 if "%RUN%"=="0" exit /b 0
 
@@ -46,4 +46,4 @@ if not exist "%MSYS2_UCRT64%\libssh2-1.dll" (
 )
 set "PATH=%ROOT%vendor\libgit2\build-ucrt64;%ODIN_ROOT%\vendor\sdl3;%MSYS2_UCRT64%;%PATH%"
 
-"%ROOT%TransactionsViewer.exe"
+"%ROOT%Git-Workbench.exe"

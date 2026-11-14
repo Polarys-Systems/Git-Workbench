@@ -23,7 +23,7 @@ gitaris_history_ui :: proc(ctx: ^ui.UiContext, face, title, icons: ^font_core.Fa
 	{
 		ui.begin_window(ctx, template_rect({40, top + 40, side_w - 32, h - top - 80}, scale), "branches")
 		template_label(ctx, icons, "\uf1d3", {48, top + 48, 32, 36}, 27, TEMPLATE_ACCENT, scale)
-		template_label(ctx, title, "gitaris", {91, top + 48, 170, 36}, 24, TEMPLATE_TEXT, scale)
+		template_label(ctx, title, "git-workbench", {91, top + 48, 189, 36}, 24, TEMPLATE_TEXT, scale)
 		template_label(ctx, face, "PROJECT", {48, top + 120, 232, 22}, 11, TEMPLATE_MUTED, scale)
 		template_label(ctx, title, filepath.base(model.config.project_path), {48, top + 149, 232, 30}, 19, TEMPLATE_TEXT, scale)
 		template_label(ctx, face, model.config.project_path, {48, top + 183, 232, 23}, 12, TEMPLATE_MUTED, scale)

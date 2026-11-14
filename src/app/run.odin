@@ -18,7 +18,7 @@ run :: proc() {
 	defer SDL.Vulkan_UnloadLibrary()
 
 	window := SDL.CreateWindow(
-		"Gitaris — Git workspace",
+		"Git-Workbench",
 		1600,
 		900,
 		{.VULKAN, .RESIZABLE, .HIGH_PIXEL_DENSITY},
@@ -52,19 +52,19 @@ run :: proc() {
 	}
 
 	text_batch := init_text_batch(device, gpu.swapchain_format(swapchain))
-	font, font_loaded := font_core.face_load_from_file(0, TEMPLATE_BODY_FONT)
+	font, font_loaded := font_core.face_load_from_data(0, TEMPLATE_BODY_FONT)
 	assert(font_loaded, "Could not load font")
 	defer font_core.face_destroy(&font)
-	title_font, title_font_loaded := font_core.face_load_from_file(1, TEMPLATE_TITLE_FONT)
+	title_font, title_font_loaded := font_core.face_load_from_data(1, TEMPLATE_TITLE_FONT)
 	assert(title_font_loaded, "Could not load Satoshi title font")
 	defer font_core.face_destroy(&title_font)
-	welcome_font, welcome_font_loaded := font_core.face_load_from_file(3, GITARIS_WELCOME_FONT)
+	welcome_font, welcome_font_loaded := font_core.face_load_from_data(3, GITARIS_WELCOME_FONT)
 	assert(welcome_font_loaded, "Could not load Gambarino welcome font")
 	defer font_core.face_destroy(&welcome_font)
-	icon_font, icon_font_loaded := font_core.face_load_from_file(2, TEMPLATE_ICON_FONT)
+	icon_font, icon_font_loaded := font_core.face_load_from_data(2, TEMPLATE_ICON_FONT)
 	assert(icon_font_loaded, "Could not load icon font")
 	defer font_core.face_destroy(&icon_font)
-	code_font, code_font_loaded := font_core.face_load_from_file(4, GITARIS_DIFF_FONT)
+	code_font, code_font_loaded := font_core.face_load_from_data(4, GITARIS_DIFF_FONT)
 	assert(code_font_loaded, "Could not load Geist Mono diff font")
 	defer font_core.face_destroy(&code_font)
 	defer {

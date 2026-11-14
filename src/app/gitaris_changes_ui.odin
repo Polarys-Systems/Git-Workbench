@@ -9,7 +9,7 @@ import "../git"
 import "../ui"
 import "../workspace"
 
-GITARIS_DIFF_FONT :: "./assets/fonts/GeistMono/GeistMono-Regular.ttf"
+GITARIS_DIFF_FONT :: #load("../../assets/fonts/GeistMono/GeistMono-Regular.ttf")
 GITARIS_ADDITION :: [4]f32{0.76, 0.90, 0.77, 1}
 GITARIS_DELETION :: [4]f32{0.96, 0.79, 0.77, 1}
 GITARIS_ADDITION_STRONG :: [4]f32{0.55, 0.81, 0.58, 1}

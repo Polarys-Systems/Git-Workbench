@@ -14,7 +14,7 @@ gitaris_welcome_ui :: proc(ctx: ^ui.UiContext, face, title, welcome, icons: ^fon
 	x := cx + 40
 	left_w := cw * 0.44 - 64
 	template_label(ctx, icons, "\uf1d3", {x, cy + 40, 32, 36}, 28, TEMPLATE_ACCENT, scale)
-	template_label(ctx, title, "gitaris", {x + 44, cy + 40, left_w - 44, 36}, 23, TEMPLATE_TEXT, scale)
+	template_label(ctx, title, "git-workbench", {x + 44, cy + 40, left_w - 44, 36}, 23, TEMPLATE_TEXT, scale)
 	// Gambarino ships in Regular only. A subpixel overprint supplies faux bold.
 	bold_offsets := [?]f32{0, 0.7}
 	for offset in bold_offsets {

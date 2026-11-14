@@ -1,10 +1,10 @@
-# Gitaris
+# Git-Workbench
 
 A local Git history viewer built with Odin, SDL3, Vulkan, and libgit2.
 
 ## First run
 
-When `gitaris.json` is missing, empty, or incomplete, Gitaris opens its welcome
+When `gitaris.json` is missing, empty, or incomplete, Git-Workbench opens its welcome
 screen. Choose an SSH key file or key directory, select an existing local Git
 project, and enter your commit name and email. Paths can be typed, pasted with
 Ctrl+V, or selected with the native file/folder pickers. Tab and Shift+Tab move
@@ -184,7 +184,8 @@ since the supplied family contains only the Regular face.
 
 ## Build and run
 
-Run from the project root so the `assets` directory is available. Install Odin,
+Run the commands below from the project root; fonts are embedded at compile
+time, but some tests read files from `assets`. Install Odin,
 SDL3, Vulkan, and the libgit2 dependencies described in [src/git/README.md](src/git/README.md).
 
 libgit2 is a Git submodule at `vendor/libgit2`, pinned to the commit the
@@ -205,9 +206,23 @@ PowerShell, with Odin on PATH:
 
 ```powershell
 $env:PATH = "$PWD\vendor\libgit2\build-ucrt64;C:\msys64\ucrt64\bin;$env:PATH"
-odin build ./src -debug -linker:lld -out:TransactionsViewer.exe
-.\TransactionsViewer.exe
+odin build ./src -debug -linker:lld -out:Git-Workbench.exe
+.\Git-Workbench.exe
 ```
+
+### Release package (Windows)
+
+```bat
+build_release.bat
+```
+
+This builds an optimized exe without a console window and writes a portable
+folder to `dist\Git-Workbench` and a zip to `dist\Git-Workbench.zip`.
+The folder contains the exe, its runtime DLLs (SDL3, libgit2 and libgit2's MSYS2
+dependencies) and license files; fonts and shaders are embedded in the exe. It
+honours the same `ODIN_ROOT` and `MSYS2_UCRT64` overrides as
+`build_and_run.bat`. `gitaris.json` is read and written in the working
+directory.
 
 CPU checks (using the same runtime PATH):
 

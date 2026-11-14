@@ -2,10 +2,10 @@
 *.sublime-workspace
 *.sublime-project
 *.spv
-TransactionViewer
-TransactionsViewer
-TransactionsViewer.exe
+Git-Workbench
+Git-Workbench.exe
 /gitaris.json
 /.gitaris-*.tmp
 /src.exe
 *.pdb
+/dist/

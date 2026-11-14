@@ -19,9 +19,9 @@ fi
 case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*)
         export PATH="$PWD/vendor/libgit2/build-ucrt64:/ucrt64/bin:$PATH"
-        odin build ./src -debug -linker:lld -out:TransactionsViewer.exe || exit 1
+        odin build ./src -debug -linker:lld -out:Git-Workbench.exe || exit 1
         ;;
-    *) odin build ./src -debug -out:TransactionsViewer || exit 1 ;;
+    *) odin build ./src -debug -out:Git-Workbench || exit 1 ;;
 esac
 
-./TransactionsViewer
+./Git-Workbench

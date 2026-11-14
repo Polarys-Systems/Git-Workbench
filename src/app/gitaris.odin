@@ -8,7 +8,7 @@ import "../ui"
 import "../workspace"
 import SDL "vendor:sdl3"
 
-GITARIS_WELCOME_FONT :: "./assets/fonts/Gambarino_Complete/Fonts/OTF/Gambarino-Regular.otf"
+GITARIS_WELCOME_FONT :: #load("../../assets/fonts/Gambarino_Complete/Fonts/OTF/Gambarino-Regular.otf")
 
 Gitaris_Menu :: enum { NONE, PROJECT, PREFERENCES, MERGE, SYNC }
 

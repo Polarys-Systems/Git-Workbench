@@ -6,9 +6,11 @@ import "core:strings"
 import font_core "../font"
 import "../ui"
 
-TEMPLATE_BODY_FONT :: "./assets/fonts/Satoshi_Complete/Satoshi_Complete/Fonts/OTF/Satoshi-Regular.otf"
-TEMPLATE_TITLE_FONT :: "./assets/fonts/Satoshi_Complete/Satoshi_Complete/Fonts/OTF/Satoshi-Bold.otf"
-TEMPLATE_ICON_FONT :: "./assets/fonts/SymbolsNerdFontMono-Regular.ttf"
+// Fonts are embedded at compile time so the executable does not depend on the
+// working directory. #load paths are relative to this source file.
+TEMPLATE_BODY_FONT :: #load("../../assets/fonts/Satoshi_Complete/Satoshi_Complete/Fonts/OTF/Satoshi-Regular.otf")
+TEMPLATE_TITLE_FONT :: #load("../../assets/fonts/Satoshi_Complete/Satoshi_Complete/Fonts/OTF/Satoshi-Bold.otf")
+TEMPLATE_ICON_FONT :: #load("../../assets/fonts/SymbolsNerdFontMono-Regular.ttf")
 
 TEMPLATE_BACKGROUND :: [4]f32{0.72, 0.74, 0.72, 1}
 TEMPLATE_SURFACE :: [4]f32{0.84, 0.86, 0.84, 1}
@@ -126,8 +128,8 @@ git_template_ui :: proc(ctx: ^ui.UiContext, face, title, icons: ^font_core.Face,
 			template_label(ctx, face, "Local workspace", {side_x + 56, 115, 160, 20}, 13, TEMPLATE_MUTED, scale)
 			template_label(ctx, face, "Repository", {side_x, 167, side_w, 24}, 13, TEMPLATE_MUTED, scale)
 			template_label(ctx, icons, "\uf07b", {side_x + 2, 204, 24, 28}, 18, TEMPLATE_MUTED, scale)
-			template_label(ctx, title, "TransactionsViewer", {side_x + 36, 200, side_w - 36, 26}, 16, TEMPLATE_TEXT, scale)
-			template_label(ctx, face, "~/devel/TransactionsViewer", {side_x + 36, 226, side_w - 36, 20}, 12, TEMPLATE_MUTED, scale)
+			template_label(ctx, title, "Git-Workbench", {side_x + 36, 200, side_w - 36, 26}, 16, TEMPLATE_TEXT, scale)
+			template_label(ctx, face, "~/devel/Git-Workbench", {side_x + 36, 226, side_w - 36, 20}, 12, TEMPLATE_MUTED, scale)
 			template_panel(ctx, {side_x - 4, 267, side_w + 8, 44}, TEMPLATE_SELECTED, 10, scale)
 			template_label(ctx, icons, "\uf1da", {side_x + 10, 267, 24, 44}, 17, TEMPLATE_TEXT, scale)
 			template_label(ctx, title, "History", {side_x + 46, 267, 124, 44}, 16, TEMPLATE_TEXT, scale)
@@ -155,7 +157,7 @@ git_template_ui :: proc(ctx: ^ui.UiContext, face, title, icons: ^font_core.Face,
 			template_label(ctx, face, "REPOSITORY  /  OVERVIEW", {x, 67, cw - 140, 24}, 11, TEMPLATE_MUTED, scale)
 			template_box(ctx, {x + cw - 120, 65, 120, 28}, TEMPLATE_SURFACE, 14, scale)
 			template_label(ctx, face, "Template preview", {x + cw - 120, 65, 120, 28}, 11, TEMPLATE_MUTED, scale, {.CENTER})
-			template_label(ctx, title, "TransactionsViewer", {x, 101, cw, 49}, 34, TEMPLATE_TEXT, scale)
+			template_label(ctx, title, "Git-Workbench", {x, 101, cw, 49}, 34, TEMPLATE_TEXT, scale)
 			template_label(ctx, face, "A little clarity for your code.", {x, 152, cw, 26}, 16, TEMPLATE_MUTED, scale)
 			card_w := (cw - 18) * 0.5
 			template_panel(ctx, {x, 204, card_w, 123}, TEMPLATE_CARD, 14, scale)

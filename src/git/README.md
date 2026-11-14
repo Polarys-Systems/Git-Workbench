@@ -23,16 +23,16 @@ From the project root in **MSYS2 UCRT64**:
 
 ```sh
 export PATH="$PWD/vendor/libgit2/build-ucrt64:/ucrt64/bin:$PATH"
-odin build ./src -debug -linker:lld -out:TransactionsViewer.exe
-./TransactionsViewer.exe
+odin build ./src -debug -linker:lld -out:Git-Workbench.exe
+./Git-Workbench.exe
 ```
 
 Or PowerShell (with `odin` on PATH):
 
 ```powershell
 $env:PATH = "$PWD\vendor\libgit2\build-ucrt64;C:\msys64\ucrt64\bin;$env:PATH"
-odin build ./src -debug -linker:lld -out:TransactionsViewer.exe
-.\TransactionsViewer.exe
+odin build ./src -debug -linker:lld -out:Git-Workbench.exe
+.\Git-Workbench.exe
 ```
 
 `libgit2.dll` and its dependencies must be on PATH or beside the executable.
