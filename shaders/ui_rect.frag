@@ -14,7 +14,17 @@ vec3 srgb_to_linear(vec3 value) {
 
 void main() {
     float coverage;
-    if (uv.x < 0.0) {
+    if (uv.x < 0.0 && uv.y < 0.0) {
+        // Rounded rectangle: line holds its pixel bounds (x0, y0, x1, y1) and
+        // -uv.x its corner radius. Clipping only shrinks the quad, never these.
+        vec2 center = (line.xy + line.zw) * 0.5;
+        vec2 half_size = (line.zw - line.xy) * 0.5;
+        float radius = min(-uv.x, min(half_size.x, half_size.y));
+        vec2 q = abs(gl_FragCoord.xy - center) - half_size + radius;
+        float distance_to_edge = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+        float aa = max(fwidth(distance_to_edge) * 0.5, 0.5);
+        coverage = 1.0 - smoothstep(-aa, aa, distance_to_edge);
+    } else if (uv.x < 0.0) {
         // A capsule's distance field draws both straight segments and round
         // commit nodes (equal endpoints) inside one ordinary rectangle.
         vec2 direction = line.zw - line.xy;

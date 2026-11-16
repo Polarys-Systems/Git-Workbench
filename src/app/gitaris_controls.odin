@@ -8,17 +8,28 @@ import "../ui"
 gitaris_control_style :: proc(face: ^font_core.Face, scale: f32, primary := false) -> ui.UiStyle {
 	style := ui.default_style
 	style.font_id = ui.UiFont(uintptr(face))
-	style.font_size = 14 * scale
-	style.padding = 12 * scale
-	style.radius = 8 * scale
-	style.border = scale
+	style.font_size = 13 * scale
+	style.padding = 10 * scale
+	// Buttons are pills: the renderer clamps the radius to half the height.
+	style.radius = 999 * scale
+	style.border = 0
 	style.border_color = TEMPLATE_LINE
 	style.focus_color = TEMPLATE_ACCENT
 	style.text_color = primary ? TEMPLATE_LIGHT : TEMPLATE_TEXT
-	style.color_top = primary ? TEMPLATE_ACCENT : TEMPLATE_CARD
+	style.color_top = primary ? TEMPLATE_ACCENT : TEMPLATE_BUTTON
 	style.color_bottom = style.color_top
-	style.hover_color = primary ? [4]f32{0.23, 0.38, 0.30, 1} : TEMPLATE_SELECTED
-	style.active_color = primary ? TEMPLATE_DARK : TEMPLATE_SURFACE
+	style.hover_color = primary ? [4]f32{0.32, 0.32, 0.31, 1} : [4]f32{0.87, 0.87, 0.85, 1}
+	style.active_color = primary ? TEMPLATE_DARK : [4]f32{0.83, 0.83, 0.81, 1}
+	return style
+}
+
+// Text fields: light, gently rounded, with a hairline border.
+gitaris_field_style :: proc(face: ^font_core.Face, scale: f32) -> ui.UiStyle {
+	style := gitaris_control_style(face, scale)
+	style.radius = 10 * scale
+	style.border = scale
+	style.color_top, style.color_bottom = TEMPLATE_LIGHT, TEMPLATE_LIGHT
+	style.hover_color, style.active_color = TEMPLATE_LIGHT, TEMPLATE_LIGHT
 	return style
 }
 
@@ -33,8 +44,11 @@ gitaris_button :: proc(ctx: ^ui.UiContext, face: ^font_core.Face, text: string,
 gitaris_row_button :: proc(ctx: ^ui.UiContext, face: ^font_core.Face, id: string,
 	rect: ui.Rect2d, selected: bool, scale: f32) -> bool {
 	style := gitaris_control_style(face, scale)
-	style.color_top = selected ? TEMPLATE_SELECTED : TEMPLATE_SURFACE
+	style.radius = 10 * scale
+	style.color_top = selected ? TEMPLATE_SELECTED : TEMPLATE_CARD
 	style.color_bottom = style.color_top
+	style.hover_color = selected ? TEMPLATE_SELECTED : TEMPLATE_HOVER
+	style.active_color = TEMPLATE_SELECTED
 	style.border = 0
 	ui.style_push(ctx, style)
 	result := ui.button(ctx, "", template_rect(rect, scale), id = id)
@@ -49,6 +63,7 @@ gitaris_check :: proc(ctx: ^ui.UiContext, face: ^font_core.Face, id: string, val
 	style := gitaris_control_style(face, scale)
 	style.padding = 4 * scale
 	style.radius = 5 * scale
+	style.color_top, style.color_bottom = TEMPLATE_LIGHT, TEMPLATE_LIGHT
 	style.text_color = TEMPLATE_MUTED // Frame of the check square.
 	ui.style_push(ctx, style)
 	result := ui.check(ctx, "", value, template_rect(rect, scale), id = id)
@@ -58,14 +73,12 @@ gitaris_check :: proc(ctx: ^ui.UiContext, face: ^font_core.Face, id: string, val
 
 gitaris_field :: proc(ctx: ^ui.UiContext, face: ^font_core.Face, id, label, placeholder: string,
 	value: ^strings.Builder, rect: ui.Rect2d, scale: f32, secret := false) -> ui.UiResult {
-	if label != "" do template_label(ctx, face, label, {rect.x, rect.y - 28, rect.width, 24}, 13, TEMPLATE_TEXT, scale)
-	style := gitaris_control_style(face, scale)
-	style.hover_color, style.active_color = TEMPLATE_CARD, TEMPLATE_CARD
-	ui.style_push(ctx, style)
+	if label != "" do template_label(ctx, face, label, {rect.x, rect.y - 22, rect.width, 18}, 12, TEMPLATE_MUTED, scale)
+	ui.style_push(ctx, gitaris_field_style(face, scale))
 	result := secret ? ui.secret_box(ctx, id, value, template_rect(rect, scale)) : ui.input_box(ctx, id, value, template_rect(rect, scale))
 	ui.style_pop(ctx)
 	if len(value.buf) == 0 {
-		template_label(ctx, face, placeholder, {rect.x + 13, rect.y, rect.width - 26, rect.height}, 14, TEMPLATE_MUTED, scale)
+		template_label(ctx, face, placeholder, {rect.x + 11, rect.y, rect.width - 22, rect.height}, 13, TEMPLATE_MUTED, scale)
 	}
 	return result
 }

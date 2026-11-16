@@ -26,6 +26,16 @@ draw_rect :: proc(batch: ^Text_Batch, rect: ui.Rect2d, top, bottom: [4]f32) -> b
 		batch.white_uv, batch.white_uv, top, bottom)
 }
 
+// Corners are antialiased in the same shader as lines (negative UVs select the
+// distance-field paths), so rounded boxes stay in the single UI batch.
+draw_rounded_rect :: proc(batch: ^Text_Batch, rect: ui.Rect2d, top, bottom: [4]f32, radius: f32) -> bool {
+	if radius < 0.5 do return draw_rect(batch, rect, top, bottom)
+	if rect.width <= 0 || rect.height <= 0 do return true
+	uv := [2]f32{-radius, -1}
+	return append_draw_quad(batch, {rect.x, rect.y}, {rect.x + rect.width, rect.y + rect.height}, uv, uv, top, bottom,
+		{rect.x, rect.y, rect.x + rect.width, rect.y + rect.height})
+}
+
 draw_line :: proc(batch: ^Text_Batch, start, end: [2]f32, width: f32, color: [4]f32) -> bool {
 	if width <= 0 do return true
 	radius := width * 0.5
@@ -82,15 +92,18 @@ draw_ui :: proc(batch: ^Text_Batch, ctx: ^ui.UiContext) -> (ok: bool) {
 			if !draw_line(batch, box.line_start, box.line_end, box.line_width, box.style.text_color) do return false
 			continue
 		}
-		if box.draw_background {
+		// Windows are transparent: the cards drawn behind them show through.
+		if box.draw_background && (box.style.color_top.a > 0 || box.style.color_bottom.a > 0 || box.style.border > 0 || box.focused) {
 			r := box.rect
+			radius := min(box.style.radius, min(r.width, r.height) * 0.5)
 			border := min(max(box.style.border, box.focused ? f32(1) : 0), min(r.width, r.height) * 0.5)
 			if border > 0 {
 				color := box.focused ? box.style.focus_color : box.style.border_color
-				if !draw_rect(batch, r, color, color) do return false
+				if !draw_rounded_rect(batch, r, color, color, radius) do return false
 				r = {r.x + border, r.y + border, r.width - 2 * border, r.height - 2 * border}
+				radius = max(0, radius - border)
 			}
-			if !draw_rect(batch, r, box.style.color_top, box.style.color_bottom) do return false
+			if !draw_rounded_rect(batch, r, box.style.color_top, box.style.color_bottom, radius) do return false
 		}
 		if box.icon == .CHECK || box.icon == .CHECK_UNCHECKED {
 			r := box.icon_rect

@@ -36,6 +36,8 @@ Model :: struct {
 	changes: Commit_Changes,
 	merge: Merge_Editor,
 	sync: Sync_Status,
+	submodules: [dynamic]Submodule_Info,
+	submodule_error: string, // Listing failed (e.g. a malformed .gitmodules).
 }
 
 cstring_temp :: proc(text: string) -> cstring {
@@ -67,6 +69,7 @@ clear_history :: proc(model: ^Model) {
 destroy :: proc(model: ^Model) {
 	clear_merge(&model.merge)
 	clear_sync(&model.sync)
+	clear_submodules(model)
 	clear_history(model)
 	delete(model.commits)
 	for branch in model.branches {
@@ -107,6 +110,7 @@ open :: proc(model: ^Model, config: Config) -> string {
 	next.config = config_clone(config)
 	if err := load_branches(&next); err != "" do return err
 	load_sync(&next)
+	load_submodules(&next)
 	if err := select_history(&next, next.selected, true); err != "" do return err
 	destroy(model)
 	model^ = next

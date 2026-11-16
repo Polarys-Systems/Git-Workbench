@@ -1,7 +1,9 @@
 package app
 
 import "core:c"
+import "core:fmt"
 import "core:mem"
+import "core:path/filepath"
 import "core:strings"
 
 import "../ui"
@@ -10,7 +12,7 @@ import SDL "vendor:sdl3"
 
 GITARIS_WELCOME_FONT :: #load("../../assets/fonts/Gambarino_Complete/Fonts/OTF/Gambarino-Regular.otf")
 
-Gitaris_Menu :: enum { NONE, PROJECT, PREFERENCES, MERGE, SYNC }
+Gitaris_Menu :: enum { NONE, PROJECT, PREFERENCES, MERGE, SYNC, SUBMODULES }
 
 Gitaris :: struct {
 	model: workspace.Model,
@@ -30,6 +32,109 @@ Gitaris :: struct {
 	picker_pending: bool,
 	view_id: ui.UiId,
 	view_enter: ui.UI_Anim_Float,
+	// Submodule navigation. parents holds the project paths above the open
+	// repository (outermost first); trail holds, for each level entered, the
+	// submodule's path inside its parent. Both are empty at the saved project.
+	parents, trail: [dynamic]string,
+	submodule_focus: int, // Row highlighted in the Submodules view; -1 for none.
+	window_title: string,
+}
+
+// The saved project: the outermost repository, even inside a submodule.
+gitaris_root_path :: proc(state: ^Gitaris) -> string {
+	return len(state.parents) > 0 ? state.parents[0] : state.model.config.project_path
+}
+
+// Repository names from the saved project down to the open one.
+gitaris_crumbs :: proc(state: ^Gitaris) -> [dynamic]string {
+	crumbs := make([dynamic]string, context.temp_allocator)
+	append(&crumbs, filepath.base(gitaris_root_path(state)))
+	for path in state.trail do append(&crumbs, path)
+	return crumbs
+}
+
+// The open repository's display name: the project's folder, or the
+// submodule's path inside its parent.
+gitaris_repo_label :: proc(state: ^Gitaris) -> string {
+	crumbs := gitaris_crumbs(state)
+	return crumbs[len(crumbs) - 1]
+}
+
+gitaris_parent_label :: proc(state: ^Gitaris) -> string {
+	crumbs := gitaris_crumbs(state)
+	return len(crumbs) > 1 ? crumbs[len(crumbs) - 2] : ""
+}
+
+@(private = "file")
+gitaris_clear_trail :: proc(state: ^Gitaris) {
+	for path in state.parents do delete(path)
+	for path in state.trail do delete(path)
+	clear(&state.parents)
+	clear(&state.trail)
+}
+
+// Opens another repository with the same identity and SSH keys, without
+// saving it as the project. Keeps the current workspace when opening fails.
+@(private = "file")
+gitaris_switch_repository :: proc(state: ^Gitaris, path: string) -> bool {
+	if workspace.remote_busy(&state.remote) {
+		gitaris_error(state, "Wait for the running network operation to finish before switching repositories.")
+		return false
+	}
+	config := state.model.config
+	config.project_path = path
+	next: workspace.Model
+	if err := workspace.open(&next, config); err != "" {
+		gitaris_error(state, err)
+		return false
+	}
+	workspace.destroy(&state.model)
+	state.model = next
+	strings.builder_reset(&state.search)
+	state.menu = .NONE
+	state.force_armed = false
+	state.submodule_focus = -1
+	gitaris_error(state, "")
+	return true
+}
+
+// Opens a checked-out submodule as the workspace. History, working tree,
+// staging, commits and sync then apply to the submodule; the breadcrumb
+// shows the way back to its parent.
+gitaris_enter_submodule :: proc(state: ^Gitaris, index: int) -> bool {
+	path, err := workspace.submodule_location(state.model, index)
+	if err != "" {
+		gitaris_error(state, err)
+		return false
+	}
+	parent := strings.clone(state.model.config.project_path)
+	child := strings.clone(state.model.submodules[index].path)
+	if !gitaris_switch_repository(state, path) {
+		delete(parent)
+		delete(child)
+		return false
+	}
+	append(&state.parents, parent)
+	append(&state.trail, child)
+	gitaris_notice(state, fmt.tprintf("Opened submodule %s: history, commits and sync now apply to it.", child))
+	return true
+}
+
+// Returns to an enclosing repository; level 0 is the saved project.
+gitaris_leave_to :: proc(state: ^Gitaris, level: int) -> bool {
+	if level < 0 || level >= len(state.parents) do return false
+	if !gitaris_switch_repository(state, state.parents[level]) do return false
+	left := strings.clone(state.trail[level], context.temp_allocator)
+	for i in level..<len(state.parents) {
+		delete(state.parents[i])
+		delete(state.trail[i])
+	}
+	resize(&state.parents, level)
+	resize(&state.trail, level)
+	// Point at the submodule just left, so its new status is easy to find.
+	for info, i in state.model.submodules do if info.path == left do state.submodule_focus = i
+	gitaris_notice(state, fmt.tprintf("Back in %s.", gitaris_repo_label(state)))
+	return true
 }
 
 gitaris_error :: proc(state: ^Gitaris, message: string) {
@@ -46,6 +151,13 @@ gitaris_remote_start :: proc(state: ^Gitaris, action: workspace.Remote_Action) {
 	state.force_armed = false
 	gitaris_notice(state, "")
 	gitaris_error(state, workspace.remote_start(&state.remote, &state.model, action, strings.to_string(state.passphrase)))
+}
+
+// name selects one submodule; empty updates all of them (recursively).
+gitaris_submodule_update :: proc(state: ^Gitaris, name := "") {
+	state.force_armed = false
+	gitaris_notice(state, "")
+	gitaris_error(state, workspace.remote_submodule_start(&state.remote, &state.model, name, strings.to_string(state.passphrase)))
 }
 
 gitaris_forget_passphrase :: proc(state: ^Gitaris) {
@@ -90,7 +202,7 @@ gitaris_open_menu :: proc(state: ^Gitaris, menu: Gitaris_Menu) {
 	if state.picker_pending do return
 	config := state.model.config
 	gitaris_set_field(&state.ssh, config.ssh_key_path)
-	gitaris_set_field(&state.project, config.project_path)
+	gitaris_set_field(&state.project, gitaris_root_path(state))
 	gitaris_set_field(&state.username, config.username)
 	gitaris_set_field(&state.email, config.email)
 	gitaris_error(state, "")
@@ -109,6 +221,7 @@ gitaris_init :: proc(state: ^Gitaris) {
 	state.search = strings.builder_make()
 	state.passphrase = strings.builder_make()
 	state.commit_message = strings.builder_make()
+	state.submodule_focus = -1
 	config, err := workspace.config_load()
 	defer workspace.config_destroy(&config)
 	gitaris_set_field(&state.ssh, config.ssh_key_path)
@@ -138,6 +251,10 @@ gitaris_destroy :: proc(state: ^Gitaris) {
 	strings.builder_destroy(&state.passphrase)
 	strings.builder_destroy(&state.commit_message)
 	delete(state.error)
+	gitaris_clear_trail(state)
+	delete(state.parents)
+	delete(state.trail)
+	delete(state.window_title)
 }
 
 gitaris_start :: proc(state: ^Gitaris, config_path := workspace.CONFIG_FILE) {
@@ -151,12 +268,18 @@ gitaris_start :: proc(state: ^Gitaris, config_path := workspace.CONFIG_FILE) {
 		gitaris_error(state, "Wait for the push or pull to finish before changing the project or preferences.")
 		return
 	}
+	// Saving Preferences inside a submodule keeps it open; the saved project
+	// remains the outermost repository. Opening a project leaves submodules.
+	keep_trail := state.menu == .PREFERENCES && len(state.parents) > 0 &&
+		config.project_path == workspace.normalize_path(state.parents[0])
+	opened := config
+	if keep_trail do opened.project_path = state.model.config.project_path
 	next: workspace.Model
-	if err := workspace.open(&next, config); err != "" {
+	if err := workspace.open(&next, opened); err != "" {
 		gitaris_error(state, err)
 		return
 	}
-	same_project := state.ready && state.model.config.project_path == config.project_path
+	same_project := state.ready && state.model.config.project_path == opened.project_path
 	if same_project {
 		selected := state.model.branches[state.model.selected].ref_name
 		for branch, i in next.branches {
@@ -178,6 +301,7 @@ gitaris_start :: proc(state: ^Gitaris, config_path := workspace.CONFIG_FILE) {
 	if state.model.config.ssh_key_path != config.ssh_key_path do gitaris_forget_passphrase(state)
 	workspace.destroy(&state.model)
 	state.model = next
+	if !keep_trail do gitaris_clear_trail(state)
 	if !same_project do strings.builder_reset(&state.search)
 	gitaris_error(state, "")
 	state.ready = true

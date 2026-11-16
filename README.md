@@ -44,9 +44,10 @@ reloads repository state while retaining the history scope and selected branch.
 Empty repositories and detached HEAD are supported. There are no network
 operations during setup or history browsing; only **Sync** contacts a remote.
 
-Graph lines and round nodes use rectangle quads in the existing UI batch. The
-fragment shader evaluates an antialiased distance field, so smooth lines need
-neither tessellation nor additional draw calls. After changing shaders, run
+Graph lines, round nodes and the rounded corners of cards and buttons use
+rectangle quads in the existing UI batch. The fragment shader evaluates an
+antialiased distance field, so smooth shapes need neither tessellation nor
+additional draw calls. After changing shaders, run
 `./build_and_run.sh --compile-shaders` (requires `glslc` on PATH).
 
 Select a commit to open its changed files, then select a file to inspect its
@@ -158,6 +159,44 @@ Use the top menu's **Project** button to open another local repository. Open
 and **Save** validate and update `gitaris.json`; **Cancel** leaves the current
 project and saved settings unchanged.
 
+### Submodules
+
+The sidebar lists the open repository's submodules with a status dot: lime
+when the submodule is checked out at the commit its parent records, orange when
+it needs attention, gray when it is not checked out yet. **Submodules** in the
+top menu (its badge counts the ones needing attention) shows each one's path,
+URL, the commit the parent records, and the commit actually checked out:
+
+- **Up to date**: checked out at the recorded commit (untracked files inside
+  are listed but need no action).
+- **Not checked out**: never cloned here, or its folder is empty or gone.
+- **Other commit**: the submodule has a different commit checked out. Update
+  goes back to the recorded one; staging the submodule in the parent's working
+  tree records the new one instead.
+- **New commit staged**, **Added**, **Removed**: the parent's index differs
+  from its last commit; commit the parent to record it.
+- **Uncommitted changes**: edits inside the submodule; open it to commit them.
+
+**Check status** rereads every submodule. **Update** (one) and **Update all**
+work like `git submodule update --init --recursive`: missing submodules are
+cloned, missing commits fetched, and the recorded commit checked out (detached
+HEAD), then nested submodules the same way. Local changes inside a submodule are
+never overwritten; the update stops and says so. Updates run in the background
+with the same SSH keys as Sync. A malformed `.gitmodules` is reported in this
+view and does not keep the project from opening.
+
+**Open** (or clicking a checked-out submodule in the sidebar, or **Open
+submodule** on a submodule entry in the working tree diff) makes the submodule
+the workspace: history, working tree, staging, commits, merge editor and sync
+all apply to it. It is always clear which repository is open: the menu bar
+shows a breadcrumb such as `TransactionsViewer › vendor/libgit2` with a
+**SUBMODULE** tag, the sidebar names the submodule and its parent, the window
+title shows the full path, and the commit form and Sync panel name the target
+repository. Click a parent in the breadcrumb, or **Back to …** in the sidebar,
+to return; the submodule you left is highlighted with its new status. Saving
+Preferences inside a submodule keeps it open, and `gitaris.json` keeps the
+outermost project. Opening another project leaves the submodule.
+
 ### Merge editor
 
 Open **Merge editor** in the top menu to resolve conflicts in the current working
@@ -249,6 +288,9 @@ odin test ./src/app -linker:lld -define:TEXT_GPU_TESTS=true
   merge and sync views; `gitaris_controls.odin` holds their shared controls.
 - `src/workspace/sync.odin`: upstream status, the `pull.rebase` setting, and the
   background push/pull worker (its own repository handle on a thread).
+- `src/workspace/submodule.odin`: submodule status, descriptions, and the
+  background `--init --recursive` update; `src/app/gitaris_submodules_ui.odin`
+  is its view, and `gitaris.odin` keeps the parent/submodule breadcrumb.
 - `src/workspace/stage.odin`: per-file stage state, Stage/Unstage of selected
   files, and committing the index with the configured identity.
 - `src/app/*_tests.odin`: application and rendering checks alongside the code.

@@ -78,7 +78,8 @@ branch_buttons_load_the_selected_history :: proc(t: ^testing.T) {
 	body, title, welcome, icons: font_core.Face
 	gitaris_ui(ctx, &body, &title, &welcome, &icons, &state, nil, 1000, 720, 1)
 	testing.expect(t, len(state.model.commits) == 2 && state.model.branches[state.model.selected].name == "main")
-	ui.input_mouse_move(ctx, 140, GITARIS_MENU_HEIGHT + 320)
+	// The first branch row ("feature", sorted before "main") in the sidebar.
+	ui.input_mouse_move(ctx, 140, GITARIS_MENU_HEIGHT + 138)
 	ui.input_mouse_button(ctx, .LEFT, true)
 	gitaris_ui(ctx, &body, &title, &welcome, &icons, &state, nil, 1000, 720, 1)
 	ui.input_mouse_button(ctx, .LEFT, false)
@@ -121,7 +122,7 @@ history_virtualization_and_filtering :: proc(t: ^testing.T) {
 		gitaris_ui(ctx, &body, &title, &welcome, &icons, &state, nil, 1000 * scale, 720 * scale, scale)
 		testing.expect(t, ctx.windows[2].scroll_offset.y > 0)
 		testing.expect(t, ctx.windows[1].scroll_offset.y == 0)
-		ui.input_mouse_move(ctx, 600 * scale, (GITARIS_MENU_HEIGHT + 227) * scale)
+		ui.input_mouse_move(ctx, 600 * scale, (GITARIS_MENU_HEIGHT + 74) * scale) // Search field.
 		ui.input_mouse_button(ctx, .LEFT, true)
 		ui.input_text(ctx, "COMMIT 0003")
 		gitaris_ui(ctx, &body, &title, &welcome, &icons, &state, nil, 1000 * scale, 720 * scale, scale)

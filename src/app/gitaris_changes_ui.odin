@@ -10,14 +10,22 @@ import "../ui"
 import "../workspace"
 
 GITARIS_DIFF_FONT :: #load("../../assets/fonts/GeistMono/GeistMono-Regular.ttf")
-GITARIS_ADDITION :: [4]f32{0.76, 0.90, 0.77, 1}
-GITARIS_DELETION :: [4]f32{0.96, 0.79, 0.77, 1}
-GITARIS_ADDITION_STRONG :: [4]f32{0.55, 0.81, 0.58, 1}
-GITARIS_DELETION_STRONG :: [4]f32{0.93, 0.62, 0.58, 1}
-GITARIS_ADD_TEXT ::[4]f32{0.18, 0.39, 0.22, 1}
-GITARIS_DELETE_TEXT :: [4]f32{0.59, 0.20, 0.18, 1}
+GITARIS_ADDITION :: [4]f32{0.84, 0.93, 0.80, 1}
+GITARIS_DELETION :: [4]f32{0.97, 0.85, 0.82, 1}
+GITARIS_ADDITION_STRONG :: [4]f32{0.66, 0.85, 0.58, 1}
+GITARIS_DELETION_STRONG :: [4]f32{0.94, 0.66, 0.60, 1}
+GITARIS_ADD_TEXT ::[4]f32{0.20, 0.42, 0.14, 1}
+GITARIS_DELETE_TEXT :: [4]f32{0.62, 0.22, 0.16, 1}
+GITARIS_DIFF_LINE :: 22
 
 gitaris_file_status :: proc(file: workspace.Changed_File) -> (string, string, [4]f32) {
+	if file.old_mode == git.FILEMODE_COMMIT || file.new_mode == git.FILEMODE_COMMIT {
+		switch file.status {
+		case git.DELTA_ADDED: return "S", "Submodule added", GITARIS_ADD_TEXT
+		case git.DELTA_DELETED: return "S", "Submodule removed", GITARIS_DELETE_TEXT
+		case: return "S", "Submodule", TEMPLATE_ACCENT
+		}
+	}
 	switch file.status {
 	case git.DELTA_ADDED: return "A", "Added", GITARIS_ADD_TEXT
 	case git.DELTA_DELETED: return "D", "Deleted", GITARIS_DELETE_TEXT
@@ -38,29 +46,29 @@ gitaris_stage_status :: proc(file: workspace.Changed_File) -> (string, [4]f32) {
 }
 
 // Message box and Commit button for the working tree view. Commits exactly the
-// staged files. Returns true when a commit replaced the model this frame.
+// staged files to the open repository, which the info line names. Returns
+// true when a commit replaced the model this frame.
 gitaris_commit_form :: proc(ctx: ^ui.UiContext, face: ^font_core.Face, state: ^Gitaris, x, y, w, scale: f32) -> bool {
 	model := &state.model
-	style := gitaris_control_style(face, scale)
-	style.hover_color, style.active_color = TEMPLATE_CARD, TEMPLATE_CARD
-	ui.style_push(ctx, style)
-	ui.textbox(ctx, "commit-message", &state.commit_message, template_rect({x, y, w, 82}, scale))
+	ui.style_push(ctx, gitaris_field_style(face, scale))
+	ui.textbox(ctx, "commit-message", &state.commit_message, template_rect({x, y, w, 64}, scale))
 	ui.style_pop(ctx)
 	if len(state.commit_message.buf) == 0 {
-		template_label(ctx, face, "Commit message · the first line is the summary", {x + 13, y + 6, w - 26, 26}, 14, TEMPLATE_MUTED, scale)
+		template_label(ctx, face, "Commit message · first line is the summary", {x + 11, y + 4, w - 22, 24}, 13, TEMPLATE_MUTED, scale)
 	}
 	staged := 0
 	for file in model.changes.files do if file.staged do staged += 1
-	info := staged > 0 ? fmt.tprintf("%d staged file%s · as %s", staged, staged == 1 ? "" : "s", model.config.username) : "Nothing staged yet"
-	template_label(ctx, face, info, {x, y + 90, w - 128, 34}, 12, staged > 0 ? TEMPLATE_TEXT : TEMPLATE_MUTED, scale)
-	if !gitaris_button(ctx, face, "Commit", {x + w - 120, y + 90, 120, 34}, scale, true, id = "commit-staged") do return false
+	target := gitaris_repo_label(state)
+	info := staged > 0 ? fmt.tprintf("%d staged · into %s", staged, target) : fmt.tprintf("Nothing staged in %s", target)
+	template_label(ctx, face, info, {x, y + 70, w - 100, 30}, 11, staged > 0 ? TEMPLATE_TEXT : TEMPLATE_MUTED, scale)
+	if !gitaris_button(ctx, face, "Commit", {x + w - 94, y + 70, 94, 30}, scale, true, id = "commit-staged") do return false
 	message := strings.to_string(state.commit_message)
 	err := workspace.commit_staged(model, message)
 	gitaris_error(state, err)
 	if err != "" do return true
 	summary := strings.trim_space(message)
 	if newline := strings.index_byte(summary, '\n'); newline >= 0 do summary = strings.trim_space(summary[:newline])
-	gitaris_notice(state, fmt.tprintf("Committed: %s", summary))
+	gitaris_notice(state, fmt.tprintf("Committed to %s: %s", target, summary))
 	strings.builder_reset(&state.commit_message)
 	ctx.caret = 0
 	return true
@@ -71,114 +79,120 @@ gitaris_changes_ui :: proc(ctx: ^ui.UiContext, face, title, mono: ^font_core.Fac
 	model := &state.model
 	changes := &model.changes
 	top: f32 = GITARIS_MENU_HEIGHT
+	y0 := top + 14
+	bottom := h - GITARIS_GAP - 14
+	working := changes.working
+	py := y0 + 64
 	{
 		// Keep the history window's scroll position while its details are open.
-		ui.begin_window(ctx, template_rect({x, top + 40, cw, h - top - 80}, scale), "history")
-		if gitaris_button(ctx, face, "← History", {x + 8, top + 51, 124, 34}, scale) {
+		ui.begin_window(ctx, template_rect(gitaris_main_rect(x + cw + GITARIS_PAD + GITARIS_GAP, h), scale), "history")
+		if gitaris_button(ctx, face, "← History", {x, y0 + 1, 96, 30}, scale) {
 			workspace.clear_changes(changes)
 			gitaris_error(state, "")
 			return
 		}
-		if changes.working {
-			template_label(ctx, face, "WORKING TREE CHANGES", {x + 148, top + 54, cw - 256, 26}, 11, TEMPLATE_MUTED, scale)
-			if gitaris_button(ctx, face, "Reload", {x + cw - 92, top + 51, 84, 34}, scale) {
+		meta: string
+		if working {
+			template_label(ctx, title, "Uncommitted changes", {x + 108, y0, cw - 200, 32}, 18, TEMPLATE_TEXT, scale)
+			if gitaris_button(ctx, face, "Reload", {x + cw - 80, y0 + 1, 80, 30}, scale) {
 				gitaris_error(state, workspace.select_working_changes(model))
 			}
-			// The left half describes the changes; the right half holds the commit form.
-			lw := cw * 0.5 - 16
-			template_label(ctx, title, "Uncommitted changes", {x + 8, top + 99, lw, 40}, 26, TEMPLATE_TEXT, scale)
 			branch := model.sync.branch != "" ? model.sync.branch : "Detached HEAD"
-			summary := fmt.tprintf("%s  /  %d changed files", branch, len(changes.files))
-			template_label(ctx, face, summary, {x + 8, top + 146, lw, 26}, 14, TEMPLATE_MUTED, scale)
-			base := changes.hash != "" ? fmt.tprintf("HEAD %s", changes.hash) : "No commits yet"
-			template_label(ctx, mono, base, {x + 8, top + 177, lw, 24}, 12, TEMPLATE_MUTED, scale)
-			template_label(ctx, face, "Compared with the last commit · viewing never stages", {x + 8, top + 209, lw, 24}, 11, TEMPLATE_MUTED, scale)
-			if gitaris_commit_form(ctx, face, state, x + cw * 0.5, top + 95, cw * 0.5 - 8, scale) do return
+			base := changes.hash != "" ? fmt.tprintf("HEAD %s", changes.hash[:min(8, len(changes.hash))]) : "no commits yet"
+			meta = fmt.tprintf("%s  ·  %s  ·  %d changed  ·  %s  ·  compared with the last commit; viewing never stages",
+				gitaris_repo_label(state), branch, len(changes.files), base)
 		} else {
-			template_label(ctx, face, "COMMIT CHANGES", {x + 148, top + 54, cw - 156, 26}, 11, TEMPLATE_MUTED, scale)
 			commit := model.commits[changes.commit_index]
-			template_label(ctx, title, commit.message, {x + 8, top + 99, cw - 16, 40}, 26, TEMPLATE_TEXT, scale)
-			template_label(ctx, face, fmt.tprintf("%s  /  %s", commit.author, commit.date), {x + 8, top + 146, cw - 16, 26}, 14, TEMPLATE_MUTED, scale)
-			template_label(ctx, mono, changes.hash, {x + 8, top + 177, cw - 16, 24}, 12, TEMPLATE_MUTED, scale)
-			template_label(ctx, face, "Compared with first parent · initial commits use an empty tree", {x + 8, top + 209, cw - 16, 24}, 11, TEMPLATE_MUTED, scale)
+			template_label(ctx, title, commit.message, {x + 108, y0, cw - 108, 32}, 18, TEMPLATE_TEXT, scale)
+			meta = fmt.tprintf("%s  ·  %s  ·  %s  ·  compared with the first parent", commit.author, commit.date, changes.hash)
 		}
-		if state.error != "" do gitaris_message(ctx, face, state.error, {x + 8, top + 235, cw - 16, 36}, scale)
+		template_label(ctx, face, meta, {x, y0 + 38, cw, 18}, 11, TEMPLATE_MUTED, scale)
+		if state.error != "" {
+			gitaris_message(ctx, face, state.error, {x, y0 + 60, cw, 34}, scale)
+			py += 34
+		}
 		if len(changes.files) == 0 {
-			empty := changes.working ? "No uncommitted changes. The working tree matches the last commit." : "This commit has no file changes."
-			template_label(ctx, face, empty, {x + 8, top + 300, cw - 16, 44}, 17, TEMPLATE_MUTED, scale, {.CENTER})
-			return
+			empty := working ? "No uncommitted changes. The working tree matches the last commit." : "This commit has no file changes."
+			template_label(ctx, face, empty, {x, py + 24, cw, 36}, 15, TEMPLATE_MUTED, scale, {.CENTER})
+			if !working do return
 		}
 	}
 
-	fw := clamp(cw * 0.27, 188, 280)
-	px, py := x + fw + 24, top + 286
-	dw := cw - fw - 32
+	fw := clamp(cw * 0.3, 220, 300)
+	dx := x + fw + 14
+	dw := cw - fw - 14
 	{
-		ui.begin_window(ctx, template_rect({x + 8, py, fw, h - py - 64}, scale), "commit-files")
+		ui.begin_window(ctx, template_rect({x, py, fw, bottom - py}, scale), "commit-files")
 		// Working changes get a check per file plus Stage/Unstage for the checked
-		// files (or the viewed file when none is checked).
-		working := changes.working
-		title_x: f32 = working ? 46 : 16
-		if working {
+		// files (or the viewed file when none is checked), and the commit form.
+		title_x: f32 = working ? 30 : 0
+		if working && len(changes.files) > 0 {
 			all := true
 			for file in changes.files do all = all && file.selected
-			if gitaris_check(ctx, face, "check-all-files", &all, {x + 16, py + 7, 22, 22}, scale) {
+			if gitaris_check(ctx, face, "check-all-files", &all, {x + 4, py + 2, 20, 20}, scale) {
 				for &file in changes.files do file.selected = all
 			}
 		}
-		template_label(ctx, title, "Changed files", {x + title_x, py + 4, fw - title_x - 42, 28}, 16, TEMPLATE_TEXT, scale)
-		template_label(ctx, face, fmt.tprintf("%d", len(changes.files)), {x + fw - 34, py + 4, 34, 28}, 12, TEMPLATE_MUTED, scale, {.RIGHT})
-		template_box(ctx, {x + 8, py + 42, fw, 1}, TEMPLATE_LINE, 0, scale)
-		list_top: f32 = 52
+		template_label(ctx, title, "Changed files", {x + title_x, py, fw - title_x - 40, 24}, 13, TEMPLATE_TEXT, scale)
+		template_label(ctx, face, fmt.tprintf("%d", len(changes.files)), {x + fw - 40, py, 40, 24}, 11, TEMPLATE_MUTED, scale, {.RIGHT})
+		list_top := py + 32
+		list_bottom := bottom
 		if working {
 			checked := 0
 			for file in changes.files do if file.selected do checked += 1
-			bw := (fw - 8) * 0.5
+			bw := (fw - 6) * 0.5
 			targets := workspace.stage_targets(changes^)
-			if gitaris_button(ctx, face, "Stage", {x + 8, py + 52, bw, 30}, scale, id = "stage-files") {
+			if gitaris_button(ctx, face, "Stage", {x, list_top, bw, 28}, scale, id = "stage-files") {
 				gitaris_error(state, workspace.stage_files(model, targets[:]))
 				return
 			}
-			if gitaris_button(ctx, face, "Unstage", {x + 16 + bw, py + 52, bw, 30}, scale, id = "unstage-files") {
+			if gitaris_button(ctx, face, "Unstage", {x + bw + 6, list_top, bw, 28}, scale, id = "unstage-files") {
 				gitaris_error(state, workspace.unstage_files(model, targets[:]))
 				return
 			}
 			hint := checked > 0 ? fmt.tprintf("Applies to %d checked file%s", checked, checked == 1 ? "" : "s") : "Applies to the viewed file · check files to pick several"
-			template_label(ctx, face, hint, {x + 12, py + 86, fw - 12, 18}, 10, TEMPLATE_MUTED, scale)
-			list_top = 110
+			template_label(ctx, face, hint, {x + 2, list_top + 30, fw - 2, 16}, 10, TEMPLATE_MUTED, scale)
+			list_top += 50
+			list_bottom = bottom - 108
+			template_box(ctx, {x, list_bottom + 4, fw, 1}, TEMPLATE_LINE, 0, scale)
+			if gitaris_commit_form(ctx, face, state, x, bottom - 100, fw, scale) do return
 		}
-		viewport := ui.Rect2d{x + 8, py + list_top, fw, h - py - 72 - list_top}
-		first, last, offset := gitaris_scroll_begin(ctx, viewport, len(changes.files), 58, scale)
+		viewport := ui.Rect2d{x, list_top, fw, list_bottom - list_top}
+		first, last, offset := gitaris_scroll_begin(ctx, viewport, len(changes.files), 44, scale)
 		chosen := -1
 		for i in first..<last {
 			file := &changes.files[i]
-			y := viewport.y + f32(i) * 58 - offset
-			if gitaris_row_button(ctx, face, fmt.tprintf("%d:%s", i, file.path), {viewport.x, y, fw - 7, 54}, i == changes.file.index, scale) do chosen = i
+			y := viewport.y + f32(i) * 44 - offset
+			if gitaris_row_button(ctx, face, fmt.tprintf("%d:%s", i, file.path), {viewport.x, y, fw - 7, 40}, i == changes.file.index, scale) do chosen = i
 			badge, _, color := gitaris_file_status(file^)
 			if !working {
-				template_label(ctx, mono, badge, {viewport.x + 9, y + 8, 20, 26}, 13, color, scale)
-				template_label(ctx, face, filepath.base(file.path), {viewport.x + 36, y + 5, fw - 51, 26}, 13, TEMPLATE_TEXT, scale)
-				template_label(ctx, face, file.path, {viewport.x + 36, y + 30, fw - 51, 18}, 10, TEMPLATE_MUTED, scale)
+				template_label(ctx, mono, badge, {viewport.x + 9, y + 2, 20, 22}, 12, color, scale)
+				template_label(ctx, face, filepath.base(file.path), {viewport.x + 30, y + 3, fw - 45, 20}, 13, TEMPLATE_TEXT, scale)
+				template_label(ctx, face, file.path, {viewport.x + 30, y + 22, fw - 45, 15}, 10, TEMPLATE_MUTED, scale)
 				continue
 			}
-			gitaris_check(ctx, face, fmt.tprintf("check:%s", file.path), &file.selected, {viewport.x + 6, y + 16, 22, 22}, scale)
-			template_label(ctx, mono, badge, {viewport.x + 34, y + 8, 18, 26}, 13, color, scale)
-			template_label(ctx, face, filepath.base(file.path), {viewport.x + 54, y + 5, fw - 69, 26}, 13, TEMPLATE_TEXT, scale)
+			gitaris_check(ctx, face, fmt.tprintf("check:%s", file.path), &file.selected, {viewport.x + 6, y + 10, 20, 20}, scale)
+			template_label(ctx, mono, badge, {viewport.x + 32, y + 2, 16, 22}, 12, color, scale)
+			template_label(ctx, face, filepath.base(file.path), {viewport.x + 48, y + 3, fw - 63, 20}, 13, TEMPLATE_TEXT, scale)
 			stage, stage_color := gitaris_stage_status(file^)
-			template_label(ctx, face, stage, {viewport.x + 54, y + 30, 82, 18}, 10, stage_color, scale)
-			template_label(ctx, face, file.path, {viewport.x + 138, y + 30, fw - 153, 18}, 10, TEMPLATE_MUTED, scale)
+			template_label(ctx, face, stage, {viewport.x + 48, y + 22, 76, 15}, 10, stage_color, scale)
+			template_label(ctx, face, file.path, {viewport.x + 124, y + 22, fw - 139, 15}, 10, TEMPLATE_MUTED, scale)
 		}
 		gitaris_scroll_end(ctx, viewport, scale)
 		if chosen >= 0 && chosen != changes.file.index {
 			gitaris_error(state, workspace.select_file(model, chosen))
-			ctx.windows[4].scroll_offset = {}
+			gitaris_reset_windows(ctx, "commit-diff")
 		}
 	}
+	if len(changes.files) == 0 do return
 	{
-		ui.begin_window(ctx, template_rect({px, py, dw, h - py - 64}, scale), "commit-diff")
+		ui.begin_window(ctx, template_rect({dx, py, dw, bottom - py}, scale), "commit-diff")
 		file := changes.files[changes.file.index]
 		_, status, color := gitaris_file_status(file)
-		template_label(ctx, title, file.path, {px + 8, py + 4, dw - 16, 28}, 16, TEMPLATE_TEXT, scale)
+		// A gitlink: say which commits are involved and offer to go inside.
+		submodule := workspace.submodule_for_path(model^, file.path)
+		header_w := submodule >= 0 ? dw - 140 : dw
+		template_label(ctx, title, file.path, {dx, py, header_w, 22}, 14, TEMPLATE_TEXT, scale)
 		detail := status
 		if file.status == git.DELTA_RENAMED do detail = fmt.tprintf("Renamed from %s", file.old_path)
 		if file.old_mode != 0 && file.new_mode != 0 && file.old_mode != file.new_mode {
@@ -187,58 +201,69 @@ gitaris_changes_ui :: proc(ctx: ^ui.UiContext, face, title, mono: ^font_core.Fac
 		if changes.file.workbook && !changes.file.binary {
 			detail = fmt.tprintf("%s · spreadsheet compared row by row · numbers are rows, cells separated by |", detail)
 		}
-		template_label(ctx, face, detail, {px + 8, py + 35, dw - 16, 20}, 11, color, scale)
-		template_box(ctx, {px, py + 64, dw, 1}, TEMPLATE_LINE, 0, scale)
-		viewport := ui.Rect2d{px, py + 74, dw, h - py - 178}
+		if submodule >= 0 {
+			info := model.submodules[submodule]
+			label, explanation := workspace.submodule_describe(info, gitaris_repo_label(state))
+			detail = fmt.tprintf("Submodule · %s · %s", label, explanation)
+			if gitaris_button(ctx, face, "Open submodule →", {dx + dw - 132, py - 2, 132, 28}, scale, true, id = "open-submodule") {
+				if gitaris_enter_submodule(state, submodule) do gitaris_reset_scroll(ctx)
+				return
+			}
+		}
+		template_label(ctx, face, detail, {dx, py + 22, header_w, 16}, 11, color, scale)
+		template_box(ctx, {dx, py + 44, dw, 1}, TEMPLATE_LINE, 0, scale)
+		viewport := ui.Rect2d{dx, py + 50, dw, bottom - py - 80}
 		if changes.file.binary && changes.file.note != "" {
-			template_label(ctx, face, changes.file.note, {px + 12, viewport.y + 24, dw - 24, 60}, 13, TEMPLATE_MUTED, scale)
+			template_label(ctx, face, changes.file.note, {dx + 12, viewport.y + 20, dw - 24, 60}, 13, TEMPLATE_MUTED, scale)
 		} else if changes.file.binary {
-			template_label(ctx, face, "Binary file changed — no text diff available.", {px + 12, viewport.y + 24, dw - 24, 60}, 13, TEMPLATE_MUTED, scale)
+			template_label(ctx, face, "Binary file changed — no text diff available.", {dx + 12, viewport.y + 20, dw - 24, 60}, 13, TEMPLATE_MUTED, scale)
 		} else if changes.file.workbook && len(changes.file.lines) == 0 {
-			template_label(ctx, face, "Workbook changed, but no cell values or formulas differ (formatting, comments, sizes or other content).", {px + 12, viewport.y + 24, dw - 24, 60}, 13, TEMPLATE_MUTED, scale)
+			template_label(ctx, face, "Workbook changed, but no cell values or formulas differ (formatting, comments, sizes or other content).", {dx + 12, viewport.y + 20, dw - 24, 60}, 13, TEMPLATE_MUTED, scale)
 		} else if len(changes.file.lines) == 0 {
-			template_label(ctx, face, "No text changes (empty file, rename, or file mode only).", {px + 12, viewport.y + 24, dw - 24, 60}, 13, TEMPLATE_MUTED, scale)
+			text := submodule >= 0 ? "Only the contents of the submodule changed. Open it to see and commit them." : "No text changes (empty file, rename, or file mode only)."
+			template_label(ctx, face, text, {dx + 12, viewport.y + 20, dw - 24, 60}, 13, TEMPLATE_MUTED, scale)
 		}
 		cell: f32 = 8
 		if ctx.measure_text != nil do cell = ctx.measure_text(ui.UiFont(uintptr(mono)), "M", 13 * scale).x / scale
 		content_width := max(dw, 112 + f32(changes.file.max_columns) * cell + 20)
-		first, last, offset := gitaris_scroll_begin(ctx, viewport, len(changes.file.lines), 24, scale, content_width)
+		line_h :: GITARIS_DIFF_LINE
+		first, last, offset := gitaris_scroll_begin(ctx, viewport, len(changes.file.lines), line_h, scale, content_width)
 		horizontal := ctx.layouts[ctx.n_layouts].scroll_offset.x / scale
 		for i in first..<last {
 			line := changes.file.lines[i]
-			y := viewport.y + f32(i) * 24 - offset
-			rx := px - horizontal
+			y := viewport.y + f32(i) * line_h - offset
+			rx := dx - horizontal
 			fill, text_color := TEMPLATE_CARD, TEMPLATE_TEXT
 			sign := " "
 			switch line.kind {
 			case .ADDITION: fill, text_color, sign = GITARIS_ADDITION, GITARIS_ADD_TEXT, "+"
 			case .DELETION: fill, text_color, sign = GITARIS_DELETION, GITARIS_DELETE_TEXT, "-"
-			case .HUNK: fill, text_color = TEMPLATE_SELECTED, TEMPLATE_ACCENT
+			case .HUNK: fill, text_color = TEMPLATE_SURFACE, TEMPLATE_MUTED
 			case .NOTE: text_color = TEMPLATE_MUTED
 			case .CONTEXT:
 			}
-			template_box(ctx, {px, y, dw, 24}, fill, 0, scale)
+			template_box(ctx, {dx, y, dw, line_h}, fill, 0, scale)
 			if line.kind == .HUNK {
-				template_label(ctx, mono, line.text, {rx + 10, y, content_width - 20, 24}, 12, text_color, scale)
+				template_label(ctx, mono, line.text, {rx + 10, y, content_width - 20, line_h}, 12, text_color, scale)
 				continue
 			}
 			// Changed cells within a workbook row get a stronger tint behind the text.
 			strong := line.kind == .ADDITION ? GITARIS_ADDITION_STRONG : GITARIS_DELETION_STRONG
 			for span in changes.file.spans[line.span_start:][:line.span_count] {
-				template_box(ctx, {rx + 112 + f32(span.start) * cell - 1, y + 3, f32(span.end - span.start) * cell + 2, 18}, strong, 3, scale)
+				template_box(ctx, {rx + 112 + f32(span.start) * cell - 1, y + 3, f32(span.end - span.start) * cell + 2, line_h - 6}, strong, 3, scale)
 			}
-			if line.old_line > 0 do template_label(ctx, mono, fmt.tprintf("%d", line.old_line), {rx + 4, y, 40, 24}, 11, TEMPLATE_MUTED, scale, {.RIGHT})
-			if line.new_line > 0 do template_label(ctx, mono, fmt.tprintf("%d", line.new_line), {rx + 48, y, 40, 24}, 11, TEMPLATE_MUTED, scale, {.RIGHT})
-			template_label(ctx, mono, sign, {rx + 94, y, 14, 24}, 13, text_color, scale)
-			template_label(ctx, mono, line.text, {rx + 112, y, content_width - 112, 24}, 13, text_color, scale)
+			if line.old_line > 0 do template_label(ctx, mono, fmt.tprintf("%d", line.old_line), {rx + 4, y, 40, line_h}, 11, TEMPLATE_MUTED, scale, {.RIGHT})
+			if line.new_line > 0 do template_label(ctx, mono, fmt.tprintf("%d", line.new_line), {rx + 48, y, 40, line_h}, 11, TEMPLATE_MUTED, scale, {.RIGHT})
+			template_label(ctx, mono, sign, {rx + 94, y, 14, line_h}, 13, text_color, scale)
+			template_label(ctx, mono, line.text, {rx + 112, y, content_width - 112, line_h}, 13, text_color, scale)
 		}
 		gitaris_scroll_end(ctx, viewport, scale, true)
-		template_label(ctx, mono, fmt.tprintf("+%d", changes.file.additions), {px + 8, h - 88, 78, 24}, 12, GITARIS_ADD_TEXT, scale)
-		template_label(ctx, mono, fmt.tprintf("-%d", changes.file.deletions), {px + 88, h - 88, 78, 24}, 12, GITARIS_DELETE_TEXT, scale)
+		template_label(ctx, mono, fmt.tprintf("+%d", changes.file.additions), {dx, bottom - 24, 70, 22}, 12, GITARIS_ADD_TEXT, scale)
+		template_label(ctx, mono, fmt.tprintf("-%d", changes.file.deletions), {dx + 70, bottom - 24, 70, 22}, 12, GITARIS_DELETE_TEXT, scale)
 		if content_width > dw {
 			scroll := &ctx.windows[ctx.window_index].scroll_offset.x
-			if gitaris_button(ctx, face, "←", {px + dw - 62, h - 90, 26, 26}, scale, id = "diff-left") do scroll^ = max(0, scroll^ - 240 * scale)
-			if gitaris_button(ctx, face, "→", {px + dw - 30, h - 90, 26, 26}, scale, id = "diff-right") do scroll^ = min((content_width - dw) * scale, scroll^ + 240 * scale)
+			if gitaris_button(ctx, face, "←", {dx + dw - 64, bottom - 26, 30, 26}, scale, id = "diff-left") do scroll^ = max(0, scroll^ - 240 * scale)
+			if gitaris_button(ctx, face, "→", {dx + dw - 30, bottom - 26, 30, 26}, scale, id = "diff-right") do scroll^ = min((content_width - dw) * scale, scroll^ + 240 * scale)
 		}
 	}
 }

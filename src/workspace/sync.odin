@@ -105,7 +105,9 @@ set_pull_rebase :: proc(model: ^Model, enabled: bool) -> string {
 	return ""
 }
 
-Remote_Action :: enum { PULL, PUSH, FORCE_PUSH_WITH_LEASE }
+// SUBMODULE_UPDATE is git submodule update --init --recursive, for one
+// submodule (Remote_Task.submodule) or all of them.
+Remote_Action :: enum { PULL, PUSH, FORCE_PUSH_WITH_LEASE, SUBMODULE_UPDATE }
 
 // Network operations run on a worker thread with its own repository handle,
 // so the window keeps rendering. Start at most one at a time, and do not
@@ -119,6 +121,8 @@ Remote_Task :: struct {
 	// Unlocks encrypted key files. Held only in memory, zeroed on reset.
 	passphrase: cstring,
 	rebase: bool,
+	// SUBMODULE_UPDATE: the submodule's name and path, or empty for all.
+	submodule, submodule_path: string,
 	// Result, written by the worker in fixed storage (no cross-thread allocation).
 	failed: bool,
 	// Authentication failed and an encrypted key was skipped for lack of a
@@ -149,8 +153,32 @@ remote_start :: proc(task: ^Remote_Task, model: ^Model, action: Remote_Action, p
 	if action != .PULL && model.sync.remote == "" {
 		return "This repository has no remote named origin. Add one with git remote add origin <url>."
 	}
+	return remote_launch(task, model, action, passphrase)
+}
+
+// Updates one submodule (by name) or, with an empty name, every submodule:
+// clones missing ones, fetches missing commits and checks out the commit the
+// parent records (detached HEAD), then does the same for nested submodules.
+// Local changes inside a submodule are never overwritten.
+remote_submodule_start :: proc(task: ^Remote_Task, model: ^Model, name := "", passphrase := "") -> string {
+	if remote_busy(task) do return "Another network operation is still running."
+	if model.repo == nil do return "Open a project first."
+	if len(model.submodules) == 0 do return "This repository has no submodules."
+	path := ""
+	if name != "" {
+		for info in model.submodules do if info.name == name do path = info.path
+		if path == "" do return "This submodule is no longer listed. Refresh the project."
+	}
+	return remote_launch(task, model, .SUBMODULE_UPDATE, passphrase, name, path)
+}
+
+@(private)
+remote_launch :: proc(task: ^Remote_Task, model: ^Model, action: Remote_Action, passphrase: string,
+	submodule := "", submodule_path := "") -> string {
 	remote_reset(task)
 	task.action = action
+	task.submodule = strings.clone(submodule)
+	task.submodule_path = strings.clone(submodule_path)
 	task.project_path = strings.clone(model.config.project_path)
 	task.ssh_key_path = strings.clone(model.config.ssh_key_path)
 	task.username = strings.clone(model.config.username)
@@ -204,6 +232,8 @@ remote_reset :: proc(task: ^Remote_Task) {
 	delete(task.ssh_key_path)
 	delete(task.username)
 	delete(task.email)
+	delete(task.submodule)
+	delete(task.submodule_path)
 	if task.passphrase != nil {
 		mem.zero(rawptr(task.passphrase), len(task.passphrase))
 		delete(task.passphrase)
@@ -364,6 +394,7 @@ remote_worker :: proc(task: ^Remote_Task) {
 	case .PULL: message, failed = remote_pull(repo, identity, task.rebase, &payload)
 	case .PUSH: message, failed = remote_push(repo, false, &payload)
 	case .FORCE_PUSH_WITH_LEASE: message, failed = remote_push(repo, true, &payload)
+	case .SUBMODULE_UPDATE: message, failed = remote_submodules_update(repo, task, &payload)
 	}
 	task.needs_passphrase = failed && remote_needs_passphrase(&payload)
 	task.passphrase_rejected = failed && remote_passphrase_rejected(&payload)

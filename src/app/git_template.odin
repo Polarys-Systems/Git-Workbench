@@ -12,16 +12,24 @@ TEMPLATE_BODY_FONT :: #load("../../assets/fonts/Satoshi_Complete/Satoshi_Complet
 TEMPLATE_TITLE_FONT :: #load("../../assets/fonts/Satoshi_Complete/Satoshi_Complete/Fonts/OTF/Satoshi-Bold.otf")
 TEMPLATE_ICON_FONT :: #load("../../assets/fonts/SymbolsNerdFontMono-Regular.ttf")
 
-TEMPLATE_BACKGROUND :: [4]f32{0.72, 0.74, 0.72, 1}
-TEMPLATE_SURFACE :: [4]f32{0.84, 0.86, 0.84, 1}
-TEMPLATE_CARD :: [4]f32{0.89, 0.90, 0.88, 1}
-TEMPLATE_TEXT :: [4]f32{0.15, 0.17, 0.16, 1}
-TEMPLATE_MUTED :: [4]f32{0.40, 0.44, 0.41, 1}
-TEMPLATE_LINE :: [4]f32{0.76, 0.79, 0.76, 1}
-TEMPLATE_LIGHT :: [4]f32{0.94, 0.96, 0.93, 1}
-TEMPLATE_ACCENT :: [4]f32{0.28, 0.43, 0.35, 1}
-TEMPLATE_SELECTED :: [4]f32{0.79, 0.85, 0.81, 1}
-TEMPLATE_DARK :: [4]f32{0.15, 0.17, 0.16, 1}
+// Warm light grays with near-white cards, charcoal for primary and active
+// controls, and lime as the single highlight color.
+TEMPLATE_SURFACE :: [4]f32{0.89, 0.89, 0.87, 1}
+TEMPLATE_BACKGROUND :: TEMPLATE_SURFACE // Window clear color: the page.
+TEMPLATE_CARD :: [4]f32{0.965, 0.965, 0.955, 1}
+TEMPLATE_TEXT :: [4]f32{0.12, 0.12, 0.12, 1}
+TEMPLATE_MUTED :: [4]f32{0.45, 0.45, 0.43, 1}
+TEMPLATE_LINE :: [4]f32{0.85, 0.85, 0.83, 1}
+TEMPLATE_LIGHT :: [4]f32{0.99, 0.99, 0.98, 1}
+TEMPLATE_ACCENT :: [4]f32{0.22, 0.22, 0.21, 1}
+// Selected rows: a pale wash of the lime highlight.
+TEMPLATE_SELECTED :: [4]f32{0.93, 0.95, 0.78, 1}
+TEMPLATE_HOVER :: [4]f32{0.92, 0.92, 0.90, 1}
+// Secondary buttons sit on cards; this keeps them visible without borders.
+TEMPLATE_BUTTON :: [4]f32{0.91, 0.91, 0.89, 1}
+TEMPLATE_DARK :: [4]f32{0.17, 0.17, 0.16, 1}
+TEMPLATE_HIGHLIGHT :: [4]f32{0.86, 0.93, 0.20, 1}
+TEMPLATE_WARNING :: [4]f32{0.85, 0.45, 0.30, 1}
 
 Git_Template :: struct {
 	search: strings.Builder,
@@ -73,14 +81,28 @@ template_box :: proc(ctx: ^ui.UiContext, rect: ui.Rect2d, color: [4]f32, radius,
 }
 
 template_panel :: proc(ctx: ^ui.UiContext, rect: ui.Rect2d, color: [4]f32, radius, scale: f32) {
-	// A few translucent layers give the quiet, raised edges of the reference.
-	for i := 4; i > 0; i -= 1 {
-		d := f32(i) * 2
-		template_box(ctx, {rect.x - d, rect.y - d * 0.25, rect.width + d * 2, rect.height + d * 2},
-			{0.16, 0.20, 0.17, 0.025}, radius + d, scale)
+	// Two faint, slightly lowered layers lift the card off the page.
+	for i := 2; i > 0; i -= 1 {
+		d := f32(i) * 1.5
+		template_box(ctx, {rect.x - d, rect.y - d * 0.5, rect.width + d * 2, rect.height + d * 2.5},
+			{0.10, 0.10, 0.08, 0.035}, radius + d, scale)
 	}
-	template_box(ctx, rect, color, radius, scale, 1,
-		{color.r - 0.025, color.g - 0.025, color.b - 0.025, color.a})
+	template_box(ctx, rect, color, radius, scale)
+}
+
+// A small rounded tag, e.g. HEAD or SUBMODULE. Returns its width.
+template_tag :: proc(ctx: ^ui.UiContext, face: ^font_core.Face, text: string, x, y: f32,
+	fill, color: [4]f32, scale: f32, height: f32 = 18) -> f32 {
+	width := template_text_width(ctx, face, text, 10, scale) + 14
+	template_box(ctx, {x, y, width, height}, fill, height * 0.5, scale)
+	template_label(ctx, face, text, {x, y, width, height}, 10, color, scale, {.CENTER})
+	return width
+}
+
+// Logical width of text at a logical font size (falls back to an estimate in tests).
+template_text_width :: proc(ctx: ^ui.UiContext, face: ^font_core.Face, text: string, size, scale: f32) -> f32 {
+	if ctx.measure_text == nil || face == nil do return f32(len(text)) * size * 0.55
+	return ctx.measure_text(ui.UiFont(uintptr(face)), text, size * scale).x / scale
 }
 
 git_template_ui :: proc(ctx: ^ui.UiContext, face, title, icons: ^font_core.Face,

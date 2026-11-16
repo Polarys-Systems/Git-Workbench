@@ -29,6 +29,10 @@ history_graph_clips_wide_lanes_and_omits_filtered_connections :: proc(t: ^testin
 		})
 	}
 	defer delete(state.model.commits)
+	// The commit list viewport inside the main panel (see gitaris_history_ui).
+	panel := gitaris_main_rect(1000, 720)
+	left, right := panel.x + GITARIS_PAD, panel.x + panel.width - GITARIS_PAD
+	top, bottom := panel.y + 14 + 110, panel.y + panel.height - 44 - 6
 	scales := [?]f32{1, 2}
 	for scale in scales {
 		strings.builder_reset(&state.search)
@@ -36,18 +40,19 @@ history_graph_clips_wide_lanes_and_omits_filtered_connections :: proc(t: ^testin
 		gitaris_test_frame(ctx, &state, scale)
 		segments := 0
 		for box in ui.elements(ctx) do if box.line_width > 0 && box.line_start != box.line_end do segments += 1
-		testing.expect(t, segments > 0 && ctx.n_boxes < 400)
+		// Only visible rows (about 11 here, 33 lanes each) create elements, not 3000.
+		testing.expectf(t, segments > 0 && ctx.n_boxes < 600, "segments %d boxes %d", segments, ctx.n_boxes)
 		gitaris_changes_test_click(t, ctx, &state, nil, "→", 1000, scale)
 		testing.expect(t, ctx.windows[2].scroll_offset.x > 0)
 		ui.input_mouse_move(ctx, 650 * scale, 450 * scale)
 		ui.input_scroll(ctx, 0, -1000)
 		gitaris_test_frame(ctx, &state, scale)
-		testing.expect(t, ctx.windows[2].scroll_offset.y > 0 && ctx.n_boxes < 400)
+		testing.expect(t, ctx.windows[2].scroll_offset.y > 0 && ctx.n_boxes < 600)
 		for box in ui.elements(ctx) {
 			if box.line_width <= 0 || box.boundary_rect.width <= 0 || box.boundary_rect.height <= 0 do continue
 			testing.expect(t, box.actions == {} && !box.draw_background)
-			testing.expect(t, box.boundary_rect.x >= 356 * scale && box.boundary_rect.x + box.boundary_rect.width <= 944 * scale)
-			testing.expect(t, box.boundary_rect.y >= 390 * scale && box.boundary_rect.y + box.boundary_rect.height <= 601 * scale)
+			testing.expect(t, box.boundary_rect.x >= left * scale && box.boundary_rect.x + box.boundary_rect.width <= right * scale)
+			testing.expect(t, box.boundary_rect.y >= top * scale && box.boundary_rect.y + box.boundary_rect.height <= bottom * scale)
 		}
 		gitaris_set_field(&state.search, "Commit 0003")
 		ctx.windows[2].scroll_offset = {}

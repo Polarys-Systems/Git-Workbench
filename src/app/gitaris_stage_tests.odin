@@ -16,7 +16,7 @@ gitaris_stage_test_check :: proc(t: ^testing.T, ctx: ^ui.UiContext, state: ^Gita
 	gitaris_changes_test_frame(ctx, state, mono, w, scale)
 	for box in ui.elements(ctx) {
 		if strings.to_string(box.text) != name || box.boundary_rect.height <= 0 do continue
-		ui.input_mouse_move(ctx, box.rect.x - 37 * scale, box.rect.y + 22 * scale)
+		ui.input_mouse_move(ctx, box.rect.x - 32 * scale, box.rect.y + 17 * scale)
 		ui.input_mouse_button(ctx, .LEFT, true)
 		gitaris_changes_test_frame(ctx, state, mono, w, scale)
 		ui.input_mouse_button(ctx, .LEFT, false)
@@ -65,7 +65,7 @@ working_tree_checks_stage_unstage_and_commit :: proc(t: ^testing.T) {
 
 	gitaris_changes_test_click(t, ctx, &state, &mono, "Working tree", w, scale)
 	if !testing.expect(t, changes.working && len(changes.files) == 3) do return
-	testing.expect(t, gitaris_sync_test_visible(ctx, "Nothing staged yet"))
+	testing.expect(t, gitaris_sync_test_visible(ctx, "Nothing staged in"))
 	testing.expect(t, gitaris_sync_test_visible(ctx, "Applies to the viewed file"))
 
 	// Without checks, Stage acts on the viewed file only.
@@ -81,17 +81,17 @@ working_tree_checks_stage_unstage_and_commit :: proc(t: ^testing.T) {
 	testing.expect(t, gitaris_sync_test_visible(ctx, "Applies to 2 checked files"))
 	gitaris_changes_test_click(t, ctx, &state, &mono, "Stage", w, scale)
 	testing.expect(t, state.error == "" && !changes.files[0].staged && changes.files[1].staged && changes.files[2].staged)
-	testing.expect(t, gitaris_sync_test_visible(ctx, "2 staged files"))
+	testing.expect(t, gitaris_sync_test_visible(ctx, "2 staged · into"))
 
 	// An empty message is refused; a typed one commits only the staged files.
 	gitaris_changes_test_click(t, ctx, &state, &mono, "Commit", w, scale)
 	testing.expect(t, state.error == "Enter a commit message.")
-	gitaris_changes_test_click(t, ctx, &state, &mono, "Commit message · the first line is the summary", w, scale)
+	gitaris_changes_test_click(t, ctx, &state, &mono, "Commit message · first line is the summary", w, scale)
 	ui.input_text(ctx, "Update second and third")
 	gitaris_changes_test_frame(ctx, &state, &mono, w, scale)
 	testing.expect(t, strings.to_string(state.commit_message) == "Update second and third")
 	gitaris_changes_test_click(t, ctx, &state, &mono, "Commit", w, scale)
-	testing.expect(t, state.error == "" && state.notice == "Committed: Update second and third")
+	testing.expect(t, state.error == "" && strings.has_prefix(state.notice, "Committed to ") && strings.has_suffix(state.notice, ": Update second and third"))
 	testing.expect(t, len(state.commit_message.buf) == 0)
 	if !testing.expect(t, changes.working && len(changes.files) == 1) do return
 	testing.expect(t, changes.files[0].path == "first.txt" && !changes.files[0].staged)
