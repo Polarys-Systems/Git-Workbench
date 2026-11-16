@@ -17,6 +17,8 @@ foreign libgit2 {
 	libgit2_shutdown :: proc() -> c.int ---
 	libgit2_version :: proc(major, minor, revision: ^c.int) ---
 	libgit2_features :: proc() -> c.int ---
+	// Process-wide settings; see the OPT_* constants for the arguments.
+	libgit2_opts :: proc(option: c.int, #c_vararg args: ..any) -> c.int ---
 	libgit2_feature_backend :: proc(feature: c.int) -> cstring ---
 	error_last :: proc() -> ^Error ---
 	error_clear :: proc() ---

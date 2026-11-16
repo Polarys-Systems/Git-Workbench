@@ -375,8 +375,12 @@ remote_payload :: proc(task: ^Remote_Task) -> Remote_Payload {
 remote_worker :: proc(task: ^Remote_Task) {
 	defer sync.atomic_store(&task.done, true)
 	defer free_all(context.temp_allocator)
+	// Nested submodule updates open WSL repositories inside libgit2.
+	in_wsl := is_wsl_path(task.project_path)
+	if in_wsl do wsl_trust_begin()
+	defer if in_wsl do wsl_trust_end()
 	repo: ^git.Repository
-	if git.repository_open(&repo, cstring_temp(task.project_path)) != git.OK {
+	if open_repository(&repo, task.project_path) != git.OK {
 		remote_finish(task, true, git_error("Could not open the project"))
 		return
 	}

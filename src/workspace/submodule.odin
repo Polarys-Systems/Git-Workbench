@@ -6,6 +6,8 @@ import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
+import "core:sync"
+import "core:thread"
 
 import git "../git"
 
@@ -33,8 +35,29 @@ Submodule_Info :: struct {
 	state: Submodule_State,
 	// Uncommitted or untracked changes inside, in addition to state.
 	dirty: bool,
+	// Whether dirty is known. Looking inside means scanning every file of the
+	// submodule, which libgit2 does slowly on Windows (seconds for large
+	// ones), so load_submodules leaves it to a Submodule_Scan.
+	scanned: bool,
 	// The submodule has its own checked-out repository that can be opened.
 	checked_out: bool,
+}
+
+// Every load_submodules gets a new generation, so a scan started for an
+// earlier load is never applied to a later one.
+@(private)
+submodule_generations: u64
+
+// Status flags that need a look inside the submodule's working directory.
+SUBMODULE_STATUS_DIRTY :: git.SUBMODULE_STATUS_WD_INDEX_MODIFIED | git.SUBMODULE_STATUS_WD_WD_MODIFIED | git.SUBMODULE_STATUS_WD_UNTRACKED
+
+// Folds a full status (from a scan) into a submodule's state.
+@(private)
+apply_submodule_status :: proc(info: ^Submodule_Info, status: c.uint) {
+	info.status = status
+	info.state = classify_submodule(status)
+	info.dirty = status & SUBMODULE_STATUS_DIRTY != 0
+	info.scanned = true
 }
 
 clear_submodules :: proc(model: ^Model) {
@@ -99,11 +122,13 @@ classify_submodule :: proc(status: c.uint) -> Submodule_State {
 	return .CURRENT
 }
 
-// Reads every submodule's recorded/checked-out commits and status. Missing or
+// Reads every submodule's recorded/checked-out commits and status, without
+// looking inside the submodules (see Submodule_Info.scanned). Missing or
 // broken submodules are reported in their state, and a failure to list them
 // in model.submodule_error, so neither keeps the parent project from opening.
 load_submodules :: proc(model: ^Model) {
 	clear_submodules(model)
+	model.submodule_generation = sync.atomic_add(&submodule_generations, 1) + 1
 	if model.repo == nil || git.repository_is_bare(model.repo) != 0 do return
 	names, result := submodule_names(model.repo)
 	if result != git.OK {
@@ -124,12 +149,14 @@ load_submodules :: proc(model: ^Model) {
 			index = short_oid(git.submodule_index_id(submodule)),
 			workdir = short_oid(git.submodule_wd_id(submodule)),
 		}
-		// Honor each submodule's own ignore setting (e.g. ignore = untracked).
-		if git.submodule_status(&info.status, model.repo, cstring_temp(name), git.SUBMODULE_IGNORE_UNSPECIFIED) != git.OK {
+		// IGNORE_DIRTY compares commits only: it notices a checked-out commit
+		// that moved, but not edits inside (the scan adds those).
+		if git.submodule_status(&info.status, model.repo, cstring_temp(name), git.SUBMODULE_IGNORE_DIRTY) != git.OK {
 			info.status = git.SUBMODULE_STATUS_WD_UNINITIALIZED
 		}
 		info.state = classify_submodule(info.status)
-		info.dirty = info.status & (git.SUBMODULE_STATUS_WD_INDEX_MODIFIED | git.SUBMODULE_STATUS_WD_WD_MODIFIED | git.SUBMODULE_STATUS_WD_UNTRACKED) != 0
+		// Nothing to look inside when it is not checked out.
+		info.scanned = info.state == .NOT_INITIALIZED
 		full, _ := filepath.join({workdir, info.path}, context.temp_allocator)
 		dot_git, _ := filepath.join({full, ".git"}, context.temp_allocator)
 		info.checked_out = info.workdir != "" && os.exists(dot_git)
@@ -263,4 +290,132 @@ submodule_update_one :: proc(repo: ^git.Repository, name: string, task: ^Remote_
 		if inner_err != "" do return path, fmt.tprintf("%s (in %s/%s)", inner_err, path, inner_path)
 	}
 	return path, ""
+}
+
+SUBMODULE_SCAN_MAX :: 128
+
+// Looks inside every checked-out submodule for uncommitted or untracked
+// changes on a worker thread with its own repository handle, so opening a
+// project or its working tree never waits for it. Start one per
+// load_submodules generation; poll it each frame.
+Submodule_Scan :: struct {
+	worker: ^thread.Thread,
+	done: bool, // Atomic; set by the worker when the statuses are ready.
+	generation: u64,
+	// Inputs, owned by the scan; the worker only reads them.
+	project_path: string,
+	names: [dynamic]string,
+	// Results in fixed storage, one per name.
+	statuses: [SUBMODULE_SCAN_MAX]c.uint,
+	found: [SUBMODULE_SCAN_MAX]bool,
+}
+
+submodule_scan_busy :: proc(scan: ^Submodule_Scan) -> bool {
+	return scan.worker != nil
+}
+
+// Whether the model still waits for a look inside its submodules.
+submodule_scan_needed :: proc(model: Model) -> bool {
+	for info in model.submodules do if !info.scanned do return true
+	return false
+}
+
+@(private)
+submodule_scan_prepare :: proc(scan: ^Submodule_Scan, model: ^Model) -> bool {
+	if submodule_scan_busy(scan) || model.repo == nil || !submodule_scan_needed(model^) do return false
+	submodule_scan_reset(scan)
+	scan.generation = model.submodule_generation
+	scan.project_path = strings.clone(model.config.project_path)
+	for info in model.submodules {
+		if len(scan.names) == SUBMODULE_SCAN_MAX do break
+		append(&scan.names, strings.clone(info.name))
+	}
+	return true
+}
+
+submodule_scan_start :: proc(scan: ^Submodule_Scan, model: ^Model) -> bool {
+	if !submodule_scan_prepare(scan, model) do return false
+	scan.worker = thread.create_and_start_with_poly_data(scan, submodule_scan_thread, init_context = runtime.default_context())
+	if scan.worker == nil {
+		submodule_scan_reset(scan)
+		return false
+	}
+	return true
+}
+
+// Non-blocking. Once the worker is done, applies its statuses when the model
+// is still the load it scanned, and returns true if anything was applied.
+submodule_scan_poll :: proc(scan: ^Submodule_Scan, model: ^Model) -> bool {
+	if !sync.atomic_load(&scan.done) do return false
+	if scan.worker != nil {
+		thread.join(scan.worker)
+		thread.destroy(scan.worker)
+		scan.worker = nil
+	}
+	applied := false
+	if scan.generation == model.submodule_generation {
+		for name, i in scan.names {
+			if !scan.found[i] do continue
+			for &info in model.submodules do if info.name == name {
+				apply_submodule_status(&info, scan.statuses[i])
+				applied = true
+			}
+		}
+		// Submodules the worker could not read stay as loaded, but count as seen.
+		for &info in model.submodules do info.scanned = true
+	}
+	submodule_scan_reset(scan)
+	return applied
+}
+
+submodule_scan_destroy :: proc(scan: ^Submodule_Scan) {
+	if scan.worker != nil {
+		thread.join(scan.worker)
+		thread.destroy(scan.worker)
+		scan.worker = nil
+	}
+	submodule_scan_reset(scan)
+	delete(scan.names)
+	scan.names = nil
+}
+
+// The same look inside, on the calling thread (tests, scripts).
+scan_submodules :: proc(model: ^Model) {
+	scan: Submodule_Scan
+	defer submodule_scan_destroy(&scan)
+	if !submodule_scan_prepare(&scan, model) do return
+	submodule_scan_worker(&scan)
+	_ = submodule_scan_poll(&scan, model)
+}
+
+@(private)
+submodule_scan_reset :: proc(scan: ^Submodule_Scan) {
+	delete(scan.project_path)
+	for name in scan.names do delete(name)
+	names := scan.names
+	clear(&names)
+	scan^ = {names = names}
+}
+
+// Entry point of the scan's own thread, which owns its temp allocator.
+@(private)
+submodule_scan_thread :: proc(scan: ^Submodule_Scan) {
+	defer free_all(context.temp_allocator)
+	submodule_scan_worker(scan)
+}
+
+// Runs on the scan thread, or inline from scan_submodules.
+@(private)
+submodule_scan_worker :: proc(scan: ^Submodule_Scan) {
+	defer sync.atomic_store(&scan.done, true)
+	in_wsl := is_wsl_path(scan.project_path)
+	if in_wsl do wsl_trust_begin()
+	defer if in_wsl do wsl_trust_end()
+	repo: ^git.Repository
+	if open_repository(&repo, scan.project_path) != git.OK do return
+	defer git.repository_free(repo)
+	for name, i in scan.names {
+		// Honor each submodule's own ignore setting (e.g. ignore = untracked).
+		scan.found[i] = git.submodule_status(&scan.statuses[i], repo, cstring_temp(name), git.SUBMODULE_IGNORE_UNSPECIFIED) == git.OK
+	}
 }

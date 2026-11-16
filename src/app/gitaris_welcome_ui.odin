@@ -39,7 +39,7 @@ gitaris_welcome_ui :: proc(ctx: ^ui.UiContext, face, title, welcome, icons: ^fon
 		gitaris_pick(state, window, project = false, file = true)
 	}
 	template_label(ctx, face, "Only the location is saved; your keys stay in place.", {fx, cy + 206, fw, 22}, 12, TEMPLATE_MUTED, scale)
-	_ = gitaris_field(ctx, face, "project", "Project", "Choose a local Git repository", &state.project,
+	_ = gitaris_field(ctx, face, "project", "Project", "A local Git repository · WSL works too: /home/you/project", &state.project,
 		{fx, cy + 270, fw - 100, 44}, scale)
 	if gitaris_button(ctx, face, "Browse...", {fx + fw - 90, cy + 270, 90, 44}, scale) {
 		gitaris_pick(state, window, project = true, file = false)

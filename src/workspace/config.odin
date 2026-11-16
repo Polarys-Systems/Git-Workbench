@@ -72,6 +72,10 @@ normalize_path :: proc(value: string) -> string {
 	path := strings.trim_space(value)
 	if len(path) >= 2 && path[0] == '"' && path[len(path) - 1] == '"' do path = path[1:len(path) - 1]
 	if path == "" || strings.contains(path, "\x00") do return ""
+	// A Linux path pasted from a WSL terminal, e.g. /home/you/project.
+	when ODIN_OS == .Windows {
+		if translated := wsl_translate(path, wsl_distributions()[:]); translated != "" do return translated
+	}
 	if path == "~" || strings.has_prefix(path, "~/") || strings.has_prefix(path, "~\\") {
 		home, err := os.user_home_dir(context.temp_allocator)
 		if err != nil do return ""

@@ -42,6 +42,11 @@ gitaris_sidebar_ui :: proc(ctx: ^ui.UiContext, face, title, icons: ^font_core.Fa
 		} else {
 			template_tag(ctx, face, "REPOSITORY", x, y, TEMPLATE_BUTTON, TEMPLATE_MUTED, scale)
 		}
+		// Repositories inside WSL are named with their distribution.
+		if distribution := workspace.wsl_distribution(model.config.project_path); distribution != "" {
+			text := fmt.tprintf("WSL · %s", distribution)
+			template_tag(ctx, face, text, x + iw - template_text_width(ctx, face, text, 10, scale) - 14, y, TEMPLATE_ACCENT, TEMPLATE_LIGHT, scale)
+		}
 		template_label(ctx, title, gitaris_repo_label(state), {x, y + 24, iw, 24}, 17, TEMPLATE_TEXT, scale)
 		template_label(ctx, face, model.config.project_path, {x, y + 48, iw, 16}, 10, TEMPLATE_MUTED, scale)
 		y += 72
@@ -88,7 +93,8 @@ gitaris_sidebar_ui :: proc(ctx: ^ui.UiContext, face, title, icons: ^font_core.Fa
 	ui.begin_window(ctx, template_rect({sx, sy, sw, submodule_height}, scale), "sidebar-submodules")
 	template_box(ctx, {x, sy, iw, 1}, TEMPLATE_LINE, 0, scale)
 	template_label(ctx, title, "Submodules", {x, sy + 8, iw - 40, 20}, 13, TEMPLATE_TEXT, scale)
-	template_label(ctx, face, fmt.tprintf("%d", len(model.submodules)), {x + iw - 40, sy + 8, 40, 20}, 11, TEMPLATE_MUTED, scale, {.RIGHT})
+	count := gitaris_scanning(state) ? "checking…" : fmt.tprintf("%d", len(model.submodules))
+	template_label(ctx, face, count, {x + iw - 80, sy + 8, 80, 20}, 11, TEMPLATE_MUTED, scale, {.RIGHT})
 	viewport := ui.Rect2d{x, sy + 34, iw, f32(submodule_rows) * 40}
 	first, last, offset := gitaris_scroll_begin(ctx, viewport, len(model.submodules), 40, scale)
 	chosen := -1

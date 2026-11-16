@@ -27,7 +27,7 @@ gitaris_submodules_ui :: proc(ctx: ^ui.UiContext, face, title, mono: ^font_core.
 		template_label(ctx, face, fmt.tprintf("of %s · recorded in its .gitmodules", repo), {x + 132, py + 14, cw - 400, 32}, 12, TEMPLATE_MUTED, scale)
 		if gitaris_button(ctx, face, "Check status", {x + cw - 230, py + 15, 112, 30}, scale, id = "submodules-check") && !busy {
 			gitaris_error(state, workspace.refresh(model))
-			if state.error == "" do gitaris_notice(state, fmt.tprintf("Checked %d submodules of %s.", len(model.submodules), repo))
+			gitaris_notice(state, "") // The checking line reports progress.
 		}
 		if gitaris_button(ctx, face, "Update all", {x + cw - 112, py + 15, 112, 30}, scale, true, id = "submodules-update-all") && !busy {
 			gitaris_submodule_update(state)
@@ -42,6 +42,7 @@ gitaris_submodules_ui :: proc(ctx: ^ui.UiContext, face, title, mono: ^font_core.
 		} else if state.notice != "" {
 			status, color = state.notice, GITARIS_ADD_TEXT
 		}
+		if status == "" && gitaris_scanning(state) do status = "Checking for changes inside submodules… (slow on large ones; everything else works meanwhile)"
 		if status != "" do gitaris_message(ctx, face, status, {x, py + 52, cw, 34}, scale, color)
 		if len(model.submodules) == 0 && model.submodule_error == "" {
 			template_label(ctx, title, fmt.tprintf("%s has no submodules.", repo), {x, py + 120, cw, 30}, 16, TEMPLATE_TEXT, scale, {.CENTER})
@@ -53,7 +54,7 @@ gitaris_submodules_ui :: proc(ctx: ^ui.UiContext, face, title, mono: ^font_core.
 	if len(model.submodules) == 0 do return
 
 	// The list moves down only while a status message is shown.
-	list_top: f32 = busy || state.error != "" || model.submodule_error != "" || state.notice != "" ? 92 : 58
+	list_top: f32 = busy || state.error != "" || model.submodule_error != "" || state.notice != "" || gitaris_scanning(state) ? 92 : 58
 	viewport := ui.Rect2d{x, py + list_top, cw, ph - list_top - 50}
 	ui.begin_window(ctx, template_rect(viewport, scale), "submodules-list")
 	row :: GITARIS_SUBMODULE_ROW

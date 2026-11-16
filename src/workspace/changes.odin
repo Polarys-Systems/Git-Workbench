@@ -434,6 +434,10 @@ select_working_changes :: proc(model: ^Model) -> string {
 	if git.diff_options_init(&options, git.DIFF_OPTIONS_VERSION) != git.OK do return git_error("Could not initialize the comparison")
 	options.flags = git.DIFF_INCLUDE_UNTRACKED | git.DIFF_RECURSE_UNTRACKED_DIRS |
 		git.DIFF_SHOW_UNTRACKED_CONTENT | git.DIFF_INCLUDE_TYPECHANGE
+	// Submodules show up when their checked-out commit moved. Edits inside
+	// one would mean scanning all its files (seconds on Windows); the
+	// Submodule_Scan reports those in the sidebar and Submodules view.
+	options.ignore_submodules = git.SUBMODULE_IGNORE_DIRTY
 	if git.diff_tree_to_workdir_with_index(&next.diff, model.repo, old_tree, &options) != git.OK {
 		return git_error("Could not compare the working tree")
 	}

@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:os"
 import "core:strings"
 import "core:testing"
+import "core:thread"
 
 import git "../git"
 
@@ -97,6 +98,10 @@ submodules_report_status_update_and_open :: proc(t: ^testing.T) {
 	// Untracked files inside count, but do not need attention.
 	test_write_file(t, sub_path, "scratch.txt", "notes\n")
 	if !testing.expect(t, refresh(&model) == "") do return
+	// Loading never looks inside (slow); the scan does, in the background in the app.
+	info, _ = test_submodule(&model, "vendor/lib")
+	testing.expectf(t, info.state == .CURRENT && !info.scanned && submodule_scan_needed(model), "state %v", info.state)
+	scan_submodules(&model)
 	info, _ = test_submodule(&model, "vendor/lib")
 	testing.expectf(t, info.state == .UNTRACKED && info.dirty && !submodule_attention(info), "state %v", info.state)
 	testing.expect(t, os.remove(fmt.tprintf("%s/scratch.txt", sub_path)) == nil)
@@ -143,4 +148,25 @@ submodules_report_status_update_and_open :: proc(t: ^testing.T) {
 	if !testing.expect(t, refresh(&model) == "") do return
 	info, _ = test_submodule(&model, "vendor/lib")
 	testing.expectf(t, info.state == .CURRENT && info.workdir == info.head, "state %v", info.state)
+
+	// The background scan finds edits inside; results for an older load are dropped.
+	test_write_file(t, sub_path, "lib.txt", "edited inside\n")
+	scan: Submodule_Scan
+	defer submodule_scan_destroy(&scan)
+	if !testing.expect(t, submodule_scan_start(&scan, &model)) do return
+	testing.expect(t, !submodule_scan_start(&scan, &model)) // One at a time.
+	if !testing.expect(t, refresh(&model) == "") do return // A newer load.
+	thread.join(scan.worker)
+	testing.expect(t, !submodule_scan_poll(&scan, &model) && !submodule_scan_busy(&scan))
+	info, _ = test_submodule(&model, "vendor/lib")
+	testing.expect(t, !info.scanned && info.state == .CURRENT)
+	if !testing.expect(t, submodule_scan_start(&scan, &model)) do return
+	thread.join(scan.worker)
+	testing.expect(t, submodule_scan_poll(&scan, &model) && !submodule_scan_needed(model))
+	info, _ = test_submodule(&model, "vendor/lib")
+	testing.expectf(t, info.state == .MODIFIED && info.dirty && info.scanned, "state %v", info.state)
+	// The working tree lists only moved submodules, never their insides.
+	if !testing.expect(t, select_working_changes(&model) == "") do return
+	_, file_index = test_find_file(&model, "vendor/lib")
+	testing.expect(t, file_index < 0)
 }

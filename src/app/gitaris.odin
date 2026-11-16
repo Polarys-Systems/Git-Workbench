@@ -25,6 +25,8 @@ Gitaris :: struct {
 	error: string,
 	notice: string, // Last successful push/pull/commit, shown in the menu bar and Sync.
 	remote: workspace.Remote_Task,
+	// Looks inside submodules for changes in the background (slow on Windows).
+	scan: workspace.Submodule_Scan,
 	force_armed: bool, // Force push needs a second, confirming click.
 	ready: bool,
 	menu: Gitaris_Menu,
@@ -193,6 +195,20 @@ gitaris_remote_poll :: proc(state: ^Gitaris) {
 	if working do gitaris_error(state, workspace.select_working_changes(&state.model))
 }
 
+// Called every frame: applies a finished submodule scan, and starts one for
+// a freshly loaded repository. Stale results (the repository was reloaded
+// meanwhile) are dropped, and the next frame scans again.
+gitaris_scan_poll :: proc(state: ^Gitaris) {
+	if !state.ready do return
+	_ = workspace.submodule_scan_poll(&state.scan, &state.model)
+	if !workspace.submodule_scan_busy(&state.scan) do _ = workspace.submodule_scan_start(&state.scan, &state.model)
+}
+
+// True while some submodule's inside has not been looked at yet.
+gitaris_scanning :: proc(state: ^Gitaris) -> bool {
+	return workspace.submodule_scan_needed(state.model)
+}
+
 gitaris_set_field :: proc(field: ^strings.Builder, value: string) {
 	strings.builder_reset(field)
 	strings.write_string(field, value)
@@ -240,6 +256,7 @@ gitaris_init :: proc(state: ^Gitaris) {
 gitaris_destroy :: proc(state: ^Gitaris) {
 	// Let a running push/pull finish before its repository is released.
 	workspace.remote_destroy(&state.remote)
+	workspace.submodule_scan_destroy(&state.scan)
 	delete(state.notice)
 	workspace.destroy(&state.model)
 	strings.builder_destroy(&state.ssh)

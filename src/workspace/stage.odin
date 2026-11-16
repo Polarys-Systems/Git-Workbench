@@ -21,6 +21,7 @@ load_stage_state :: proc(repo: ^git.Repository, head: ^git.Tree, changes: ^Commi
 	options: git.Diff_Options
 	if git.diff_options_init(&options, git.DIFF_OPTIONS_VERSION) != git.OK do return git_error("Could not initialize the comparison")
 	options.flags = git.DIFF_INCLUDE_UNTRACKED | git.DIFF_RECURSE_UNTRACKED_DIRS | git.DIFF_INCLUDE_TYPECHANGE
+	options.ignore_submodules = git.SUBMODULE_IGNORE_DIRTY // As in select_working_changes.
 	if git.diff_index_to_workdir(&unstaged, repo, index, &options) != git.OK do return git_error("Could not compare the working files")
 	defer git.diff_free(unstaged)
 	staged_paths, unstaged_paths := diff_paths(staged), diff_paths(unstaged)

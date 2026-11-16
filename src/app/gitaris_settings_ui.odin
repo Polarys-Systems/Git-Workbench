@@ -163,7 +163,7 @@ gitaris_settings_ui :: proc(ctx: ^ui.UiContext, face, title: ^font_core.Face,
 		}
 		template_label(ctx, face, "Only the location is saved; your keys stay in place.", {x, py + 262, fw, 18}, 11, TEMPLATE_MUTED, scale)
 	} else {
-		submit = gitaris_field(ctx, face, "project", "Project folder", "Choose a local Git repository", &state.project,
+		submit = gitaris_field(ctx, face, "project", "Project folder", "A local Git repository · WSL works too: /home/you/project", &state.project,
 			{x, py + 84, fw - 100, 38}, scale) == .SUBMIT
 		if gitaris_button(ctx, face, "Browse...", {x + fw - 92, py + 84, 92, 38}, scale) {
 			gitaris_pick(state, window, project = true, file = false)

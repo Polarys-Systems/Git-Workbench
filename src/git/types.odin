@@ -56,7 +56,12 @@ EMERGECONFLICT  :: c.int(-24)
 PASSTHROUGH     :: c.int(-30)
 ITEROVER        :: c.int(-31)
 EUNCHANGED      :: c.int(-38)
+EOWNER          :: c.int(-36) // The repository is not owned by the current user.
 ENOTSUPPORTED   :: c.int(-39)
+
+// git_libgit2_opt_t values for libgit2_opts (positions in the vendored enum).
+OPT_GET_OWNER_VALIDATION :: c.int(35) // (^c.int)
+OPT_SET_OWNER_VALIDATION :: c.int(36) // (c.int enabled)
 
 ERROR_INVALID   :: c.int(3)
 ERROR_REFERENCE :: c.int(4)

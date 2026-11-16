@@ -159,6 +159,30 @@ Use the top menu's **Project** button to open another local repository. Open
 and **Save** validate and update `gitaris.json`; **Cancel** leaves the current
 project and saved settings unchanged.
 
+### WSL repositories
+
+Repositories inside the Windows Subsystem for Linux open like any other.
+Enter the path as Windows shows it (`\\wsl.localhost\Ubuntu\home\you\project`,
+or the older `\\wsl$\...`), browse to **Linux** in the folder picker, or paste
+the Linux path straight from a WSL terminal: `/home/you/project` is found in
+your default distribution (then the others), and `/mnt/c/...` means the Windows
+drive `C:\...`. The SSH key location accepts the same forms. The sidebar tags
+such repositories **WSL · <distribution>**.
+
+Windows reports WSL files as owned by another account, so Git refuses them
+("not owned by current user"). Git-Workbench skips that ownership check for
+WSL paths only, while a WSL repository is open; every other repository is
+still checked. This is safe here because the check guards against
+repository-configured programs and hooks, which this app never runs. Your
+global Git settings are not changed, so the Git CLI still needs
+`git config --global --add safe.directory "//wsl.localhost/Ubuntu/home/you/project"`.
+A non-WSL repository owned by another Windows user shows that same command.
+
+Windows reads WSL files over a slower file share: history is quick, but the
+working tree view of a large repository can take a few seconds. Files with the
+executable bit may show as mode changes, because Windows cannot see Linux
+permissions.
+
 ### Submodules
 
 The sidebar lists the open repository's submodules with a status dot: lime
@@ -177,7 +201,14 @@ URL, the commit the parent records, and the commit actually checked out:
   from its last commit; commit the parent to record it.
 - **Uncommitted changes**: edits inside the submodule; open it to commit them.
 
-**Check status** rereads every submodule. **Update** (one) and **Update all**
+**Check status** rereads every submodule. Looking inside submodules for
+uncommitted or untracked changes means reading every one of their files, which
+libgit2 does slowly on Windows (seconds for a submodule with thousands of
+files), so it runs in the background: the sidebar shows *checking…* meanwhile,
+and opening the project or its working tree never waits for it. For the same
+reason the working tree lists a submodule only when its checked-out commit
+moved; changes inside it are reported here and committed from inside it.
+**Update** (one) and **Update all**
 work like `git submodule update --init --recursive`: missing submodules are
 cloned, missing commits fetched, and the recorded commit checked out (detached
 HEAD), then nested submodules the same way. Local changes inside a submodule are

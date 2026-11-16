@@ -10,6 +10,7 @@ import SDL "vendor:sdl3"
 gitaris_ui :: proc(ctx: ^ui.UiContext, face, title, welcome, icons: ^font_core.Face,
 	state: ^Gitaris, window: ^SDL.Window, width, height, scale: f32, mono: ^font_core.Face = nil) {
 	gitaris_remote_poll(state)
+	gitaris_scan_poll(state)
 	gitaris_animate_view(ctx, state)
 	gitaris_window_title(state, window)
 	logical_width, logical_height := width / scale, height / scale

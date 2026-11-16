@@ -38,6 +38,9 @@ Model :: struct {
 	sync: Sync_Status,
 	submodules: [dynamic]Submodule_Info,
 	submodule_error: string, // Listing failed (e.g. a malformed .gitmodules).
+	submodule_generation: u64, // Identifies this load for Submodule_Scan.
+	// Inside WSL (\\wsl.localhost\...): holds a wsl_trust_begin until destroyed.
+	wsl: bool,
 }
 
 cstring_temp :: proc(text: string) -> cstring {
@@ -80,6 +83,7 @@ destroy :: proc(model: ^Model) {
 	git.signature_free(model.identity)
 	git.repository_free(model.repo)
 	config_destroy(&model.config)
+	if model.wsl do wsl_trust_end()
 	model^ = {}
 }
 
@@ -99,11 +103,17 @@ open :: proc(model: ^Model, config: Config) -> string {
 		return "Please enter a valid commit email, such as you@example.com."
 	}
 	next: Model
-	if git.repository_open(&next.repo, cstring_temp(config.project_path)) != git.OK {
+	if result := open_repository(&next.repo, config.project_path); result != git.OK {
+		if result == git.EOWNER do return ownership_message(config.project_path)
 		return git_error("Could not open this Git project")
 	}
 	succeeded := false
 	defer if !succeeded do destroy(&next)
+	// libgit2 opens a WSL repository's submodules internally too.
+	if is_wsl_path(config.project_path) {
+		next.wsl = true
+		wsl_trust_begin()
+	}
 	if git.signature_now(&next.identity, cstring_temp(config.username), cstring_temp(config.email)) != git.OK {
 		return git_error("Could not use this commit identity")
 	}
