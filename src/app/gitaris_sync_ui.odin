@@ -15,6 +15,9 @@ gitaris_remote_progress :: proc(state: ^Gitaris) -> string {
 	case .SUBMODULE_UPDATE:
 		if state.remote.submodule_path != "" do return fmt.tprintf("Updating submodule %s…", state.remote.submodule_path)
 		return "Updating submodules…"
+	case .PUSH_TAGS:
+		if state.remote.tag != "" do return fmt.tprintf("Pushing tag %s to %s…", state.remote.tag, state.remote.tag_remote)
+		return fmt.tprintf("Pushing tags to %s…", state.remote.tag_remote)
 	}
 	return ""
 }
@@ -105,6 +108,11 @@ gitaris_sync_ui :: proc(ctx: ^ui.UiContext, face, title: ^font_core.Face, state:
 			gitaris_error(state, "")
 			gitaris_notice(state, "")
 		}
+	}
+	// Tags are never pushed with the branch; this sends every local tag.
+	if !state.force_armed && len(model.tags) > 0 &&
+		gitaris_button(ctx, face, fmt.tprintf("Push tags (%d)", len(model.tags)), {x + fw - 130, py + 278, 130, 34}, scale, id = "sync-tags") && !busy {
+		gitaris_tag_push(state, "")
 	}
 	if state.force_armed {
 		if gitaris_button(ctx, face, "Cancel", {x + 380, py + 278, 84, 34}, scale, id = "sync-force-cancel") {

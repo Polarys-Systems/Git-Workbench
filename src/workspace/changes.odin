@@ -46,6 +46,8 @@ File_Changes :: struct {
 	// Why a workbook could not be compared (shown instead of the diff).
 	note: string,
 	spans: [dynamic]Cell_Span,
+	// Workbooks: every sheet laid out as a grid (empty when it could not be built).
+	grid: Workbook_Grid,
 	additions, deletions, max_columns: int,
 }
 
@@ -70,6 +72,7 @@ clear_file_changes :: proc(file: ^File_Changes) {
 	delete(file.lines)
 	delete(file.note)
 	delete(file.spans)
+	workbook_grid_destroy(&file.grid)
 	file^ = {}
 }
 
@@ -343,6 +346,8 @@ load_workbook_changes :: proc(next: ^File_Changes, repo: ^git.Repository, delta:
 		return git_error("Could not compare the workbook versions")
 	}
 	defer git.patch_free(patch)
+	// The grid view is an extra: without it the text diff still works.
+	if grid, err := build_workbook_grid(&old_book, &new_book); err == "" do next.grid = grid
 	if patch == nil do return ""
 	return read_patch(next, patch, &old_book, &new_book)
 }

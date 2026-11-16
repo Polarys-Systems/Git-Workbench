@@ -50,6 +50,19 @@ expect_workbook :: proc(t: ^testing.T, data: []u8) {
 	testing.expect(t, strings.count(w.text, "\n") == len(w.lines))
 	testing.expectf(t, w.compare == EXPECTED_COMPARE, "unexpected compare text:\n%s", w.compare)
 	testing.expect(t, len(w.display) == len(w.lines) && w.display[4] == " | =A1&\"x\" [Namex] | AZ: #N/A")
+	// Structured cells keep each formula's own cached value (not the last one read).
+	if !testing.expect(t, len(w.cells) == len(w.lines)) do return
+	testing.expect(t, len(w.cells[0]) == 0 && len(w.cells[5]) == 0)
+	cell :: proc(w: Workbook_Text, line, i: int) -> Sheet_Cell {
+		return i < len(w.cells[line]) ? w.cells[line][i] : {}
+	}
+	first := cell(w, 2, 0)
+	testing.expectf(t, first.col == 1 && strings.has_prefix(first.value, "Line1") && strings.has_suffix(first.value, "Line2") && first.formula == "", "%q", first)
+	testing.expectf(t, cell(w, 2, 2).value == "156.25" && cell(w, 2, 2).formula == "B2*$B$2+SUM(B2:B3)", "%v", cell(w, 2, 2))
+	testing.expectf(t, cell(w, 3, 2).value == "40.5" && cell(w, 3, 2).formula == "B3*$B$2+SUM(B3:B4)", "%v", cell(w, 3, 2))
+	testing.expect(t, cell(w, 3, 3).value == "TRUE" && cell(w, 3, 3).col == 4)
+	testing.expect(t, cell(w, 4, 0).col == 2 && cell(w, 4, 0).value == "Namex" && cell(w, 4, 0).formula == "A1&\"x\"")
+	testing.expect(t, cell(w, 4, 1).col == 52 && cell(w, 4, 1).value == "#N/A")
 }
 
 @(test)

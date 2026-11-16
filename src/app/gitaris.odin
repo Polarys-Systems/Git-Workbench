@@ -14,6 +14,18 @@ GITARIS_WELCOME_FONT :: #load("../../assets/fonts/Gambarino_Complete/Fonts/OTF/G
 
 Gitaris_Menu :: enum { NONE, PROJECT, PREFERENCES, MERGE, SYNC, SUBMODULES }
 
+// Modal windows drawn over the current view.
+Gitaris_Dialog :: enum { NONE, COMMIT, BRANCH, TAG }
+
+// The spreadsheet viewer's position in the open workbook diff.
+Gitaris_Grid :: struct {
+	key: string, // The file it belongs to; a new file resets the rest.
+	sheet, first_tab: int,
+	row, col: int, // Selected cell: index into the sheet's rows, 1-based column; row -1 for none.
+	text: bool, // Show the row-by-row text diff instead.
+	changes_only: bool,
+}
+
 Gitaris :: struct {
 	model: workspace.Model,
 	ssh, project, username, email, search: strings.Builder,
@@ -40,6 +52,18 @@ Gitaris :: struct {
 	parents, trail: [dynamic]string,
 	submodule_focus: int, // Row highlighted in the Submodules view; -1 for none.
 	window_title: string,
+	// Commit editor, New branch and New tag windows.
+	dialog: Gitaris_Dialog,
+	commit_summary, commit_body: strings.Builder, // The commit editor's draft.
+	dialog_name, dialog_message: strings.Builder,  // Branch/tag name, tag message.
+	dialog_revision: string, // Commit the branch or tag starts at; empty for HEAD.
+	dialog_target: string,   // That commit, described for the window.
+	dialog_checkout, dialog_push: bool,
+	dialog_error: string,
+	// A delete awaiting its confirming click: "branch:<ref>" or "tag:<name>".
+	delete_armed: string,
+	sidebar_tags: bool, // The sidebar lists tags instead of branches.
+	grid: Gitaris_Grid,
 }
 
 // The saved project: the outermost repository, even inside a submodule.
@@ -237,7 +261,12 @@ gitaris_init :: proc(state: ^Gitaris) {
 	state.search = strings.builder_make()
 	state.passphrase = strings.builder_make()
 	state.commit_message = strings.builder_make()
+	state.commit_summary = strings.builder_make()
+	state.commit_body = strings.builder_make()
+	state.dialog_name = strings.builder_make()
+	state.dialog_message = strings.builder_make()
 	state.submodule_focus = -1
+	state.grid.row = -1
 	config, err := workspace.config_load()
 	defer workspace.config_destroy(&config)
 	gitaris_set_field(&state.ssh, config.ssh_key_path)
@@ -267,6 +296,15 @@ gitaris_destroy :: proc(state: ^Gitaris) {
 	gitaris_forget_passphrase(state)
 	strings.builder_destroy(&state.passphrase)
 	strings.builder_destroy(&state.commit_message)
+	strings.builder_destroy(&state.commit_summary)
+	strings.builder_destroy(&state.commit_body)
+	strings.builder_destroy(&state.dialog_name)
+	strings.builder_destroy(&state.dialog_message)
+	delete(state.dialog_revision)
+	delete(state.dialog_target)
+	delete(state.dialog_error)
+	delete(state.delete_armed)
+	delete(state.grid.key)
 	delete(state.error)
 	gitaris_clear_trail(state)
 	delete(state.parents)

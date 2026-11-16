@@ -60,18 +60,15 @@ gitaris_commit_form :: proc(ctx: ^ui.UiContext, face: ^font_core.Face, state: ^G
 	for file in model.changes.files do if file.staged do staged += 1
 	target := gitaris_repo_label(state)
 	info := staged > 0 ? fmt.tprintf("%d staged · into %s", staged, target) : fmt.tprintf("Nothing staged in %s", target)
-	template_label(ctx, face, info, {x, y + 70, w - 100, 30}, 11, staged > 0 ? TEMPLATE_TEXT : TEMPLATE_MUTED, scale)
+	template_label(ctx, face, info, {x, y + 70, w - 176, 30}, 11, staged > 0 ? TEMPLATE_TEXT : TEMPLATE_MUTED, scale)
+	// A roomier editor with a summary line, description and staged files.
+	if gitaris_button(ctx, face, "Editor", {x + w - 170, y + 70, 70, 30}, scale, id = "commit-editor") {
+		gitaris_open_commit_editor(ctx, state)
+	}
 	if !gitaris_button(ctx, face, "Commit", {x + w - 94, y + 70, 94, 30}, scale, true, id = "commit-staged") do return false
-	message := strings.to_string(state.commit_message)
-	err := workspace.commit_staged(model, message)
+	replaced, err := gitaris_commit(ctx, state, strings.to_string(state.commit_message))
 	gitaris_error(state, err)
-	if err != "" do return true
-	summary := strings.trim_space(message)
-	if newline := strings.index_byte(summary, '\n'); newline >= 0 do summary = strings.trim_space(summary[:newline])
-	gitaris_notice(state, fmt.tprintf("Committed to %s: %s", target, summary))
-	strings.builder_reset(&state.commit_message)
-	ctx.caret = 0
-	return true
+	return replaced
 }
 
 gitaris_changes_ui :: proc(ctx: ^ui.UiContext, face, title, mono: ^font_core.Face,
@@ -103,8 +100,19 @@ gitaris_changes_ui :: proc(ctx: ^ui.UiContext, face, title, mono: ^font_core.Fac
 				gitaris_repo_label(state), branch, len(changes.files), base)
 		} else {
 			commit := model.commits[changes.commit_index]
-			template_label(ctx, title, commit.message, {x + 108, y0, cw - 108, 32}, 18, TEMPLATE_TEXT, scale)
+			template_label(ctx, title, commit.message, {x + 108, y0, cw - 108 - 200, 32}, 18, TEMPLATE_TEXT, scale)
+			// Start a branch or tag right here, without checking anything out.
+			busy := workspace.remote_busy(&state.remote)
+			if gitaris_button(ctx, face, "Branch…", {x + cw - 192, y0 + 1, 92, 30}, scale, id = "commit-branch") {
+				if busy do gitaris_error(state, "Wait for the running network operation to finish first.")
+				else do gitaris_open_ref_dialog(ctx, state, .BRANCH, commit.hash, gitaris_commit_target(commit))
+			}
+			if gitaris_button(ctx, face, "Tag…", {x + cw - 94, y0 + 1, 94, 30}, scale, id = "commit-tag") {
+				if busy do gitaris_error(state, "Wait for the running network operation to finish first.")
+				else do gitaris_open_ref_dialog(ctx, state, .TAG, commit.hash, gitaris_commit_target(commit))
+			}
 			meta = fmt.tprintf("%s  ·  %s  ·  %s  ·  compared with the first parent", commit.author, commit.date, changes.hash)
+			if commit.tags != "" do meta = fmt.tprintf("Tagged %s  ·  %s", commit.tags, meta)
 		}
 		template_label(ctx, face, meta, {x, y0 + 38, cw, 18}, 11, TEMPLATE_MUTED, scale)
 		if state.error != "" {
@@ -191,12 +199,31 @@ gitaris_changes_ui :: proc(ctx: ^ui.UiContext, face, title, mono: ^font_core.Fac
 		_, status, color := gitaris_file_status(file)
 		// A gitlink: say which commits are involved and offer to go inside.
 		submodule := workspace.submodule_for_path(model^, file.path)
-		header_w := submodule >= 0 ? dw - 140 : dw
+		// Workbooks open as a spreadsheet grid; the row-by-row text stays a click away.
+		grid := changes.file.workbook && !changes.file.binary && len(changes.file.grid.sheets) > 0
+		if grid do gitaris_grid_sync(state, fmt.tprintf("%s|%v|%s", changes.hash, working, file.path))
+		header_w := submodule >= 0 ? dw - 140 : (grid ? dw - 150 : dw)
 		template_label(ctx, title, file.path, {dx, py, header_w, 22}, 14, TEMPLATE_TEXT, scale)
 		detail := status
 		if file.status == git.DELTA_RENAMED do detail = fmt.tprintf("Renamed from %s", file.old_path)
 		if file.old_mode != 0 && file.new_mode != 0 && file.old_mode != file.new_mode {
 			detail = fmt.tprintf("%s · mode %o → %o", detail, file.old_mode, file.new_mode)
+		}
+		if grid {
+			if gitaris_button(ctx, face, "Grid", {dx + dw - 142, py - 2, 70, 28}, scale, !state.grid.text, id = "workbook-grid") && state.grid.text {
+				state.grid.text = false
+				gitaris_reset_windows(ctx, "commit-diff")
+			}
+			if gitaris_button(ctx, face, "Text", {dx + dw - 70, py - 2, 70, 28}, scale, state.grid.text, id = "workbook-text") && !state.grid.text {
+				state.grid.text = true
+				gitaris_reset_windows(ctx, "commit-diff")
+			}
+		}
+		if grid && !state.grid.text {
+			detail = fmt.tprintf("%s · spreadsheet view · green rows added, red removed, amber cells changed", detail)
+			template_label(ctx, face, detail, {dx, py + 22, header_w, 16}, 11, color, scale)
+			gitaris_workbook_ui(ctx, face, title, mono, state, dx, py + 50, dw, bottom, scale)
+			return
 		}
 		if changes.file.workbook && !changes.file.binary {
 			detail = fmt.tprintf("%s · spreadsheet compared row by row · numbers are rows, cells separated by |", detail)

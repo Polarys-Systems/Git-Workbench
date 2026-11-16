@@ -107,7 +107,8 @@ set_pull_rebase :: proc(model: ^Model, enabled: bool) -> string {
 
 // SUBMODULE_UPDATE is git submodule update --init --recursive, for one
 // submodule (Remote_Task.submodule) or all of them.
-Remote_Action :: enum { PULL, PUSH, FORCE_PUSH_WITH_LEASE, SUBMODULE_UPDATE }
+// PUSH_TAGS pushes one tag (Remote_Task.tag) or every local tag.
+Remote_Action :: enum { PULL, PUSH, FORCE_PUSH_WITH_LEASE, SUBMODULE_UPDATE, PUSH_TAGS }
 
 // Network operations run on a worker thread with its own repository handle,
 // so the window keeps rendering. Start at most one at a time, and do not
@@ -123,6 +124,8 @@ Remote_Task :: struct {
 	rebase: bool,
 	// SUBMODULE_UPDATE: the submodule's name and path, or empty for all.
 	submodule, submodule_path: string,
+	// PUSH_TAGS: the tag, or empty for all; and the remote to push to.
+	tag, tag_remote: string,
 	// Result, written by the worker in fixed storage (no cross-thread allocation).
 	failed: bool,
 	// Authentication failed and an encrypted key was skipped for lack of a
@@ -172,13 +175,36 @@ remote_submodule_start :: proc(task: ^Remote_Task, model: ^Model, name := "", pa
 	return remote_launch(task, model, .SUBMODULE_UPDATE, passphrase, name, path)
 }
 
+// Pushes one tag (by name) or, with an empty name, every local tag to the
+// branch's remote (origin when there is no upstream). Existing remote tags
+// are never replaced: a tag that differs on the remote is rejected.
+remote_tag_start :: proc(task: ^Remote_Task, model: ^Model, name := "", passphrase := "") -> string {
+	if remote_busy(task) do return "Another network operation is still running."
+	if model.repo == nil do return "Open a project first."
+	if len(model.tags) == 0 do return "This repository has no tags to push."
+	if name != "" && tag_index(model^, name) < 0 do return "This tag is no longer available. Refresh the project."
+	remote := model.sync.remote
+	if remote == "" {
+		origin: ^git.Remote
+		if git.remote_lookup(&origin, model.repo, "origin") != git.OK {
+			git.error_clear()
+			return "This repository has no remote named origin. Add one with git remote add origin <url>."
+		}
+		git.remote_free(origin)
+		remote = "origin"
+	}
+	return remote_launch(task, model, .PUSH_TAGS, passphrase, tag = name, tag_remote = remote)
+}
+
 @(private)
 remote_launch :: proc(task: ^Remote_Task, model: ^Model, action: Remote_Action, passphrase: string,
-	submodule := "", submodule_path := "") -> string {
+	submodule := "", submodule_path := "", tag := "", tag_remote := "") -> string {
 	remote_reset(task)
 	task.action = action
 	task.submodule = strings.clone(submodule)
 	task.submodule_path = strings.clone(submodule_path)
+	task.tag = strings.clone(tag)
+	task.tag_remote = strings.clone(tag_remote)
 	task.project_path = strings.clone(model.config.project_path)
 	task.ssh_key_path = strings.clone(model.config.ssh_key_path)
 	task.username = strings.clone(model.config.username)
@@ -234,6 +260,8 @@ remote_reset :: proc(task: ^Remote_Task) {
 	delete(task.email)
 	delete(task.submodule)
 	delete(task.submodule_path)
+	delete(task.tag)
+	delete(task.tag_remote)
 	if task.passphrase != nil {
 		mem.zero(rawptr(task.passphrase), len(task.passphrase))
 		delete(task.passphrase)
@@ -259,6 +287,8 @@ Remote_Payload :: struct {
 	agent_tried, username_tried: bool,
 	lease: git.Push_Lease,
 	use_lease: bool,
+	keep_tags, tag_rejected: bool, // Tag pushes: refuse to move remote tags.
+
 }
 
 // Unencrypted key files first, then ssh-agent, then encrypted key files with
@@ -307,6 +337,18 @@ remote_credentials :: proc "c" (out: ^^git.Credential, url, username_from_url: c
 @(private)
 remote_negotiation :: proc "c" (updates: [^]^git.Push_Update, count: c.size_t, payload: rawptr) -> c.int {
 	auth := (^Remote_Payload)(payload)
+	if auth.keep_tags {
+		// Like git push: an existing remote tag is never moved (libgit2 would).
+		for i in 0..<int(count) {
+			update := updates[i]
+			if update == nil || update.dst_refname == nil do continue
+			name := string(update.dst_refname)
+			if len(name) <= 10 || name[:10] != "refs/tags/" || git.oid_is_zero(&update.src) || update.src.id == update.dst.id do continue
+			auth.tag_rejected = true
+			_ = git.error_set_str(git.ERROR_NET, "a tag with this name already exists on the remote at another commit")
+			return git.EUSER
+		}
+	}
 	if !auth.use_lease do return git.OK
 	return git.check_push_lease(&auth.lease, updates, count)
 }
@@ -399,6 +441,7 @@ remote_worker :: proc(task: ^Remote_Task) {
 	case .PUSH: message, failed = remote_push(repo, false, &payload)
 	case .FORCE_PUSH_WITH_LEASE: message, failed = remote_push(repo, true, &payload)
 	case .SUBMODULE_UPDATE: message, failed = remote_submodules_update(repo, task, &payload)
+	case .PUSH_TAGS: message, failed = remote_push_tags(repo, task.tag, task.tag_remote, &payload)
 	}
 	task.needs_passphrase = failed && remote_needs_passphrase(&payload)
 	task.passphrase_rejected = failed && remote_passphrase_rejected(&payload)
@@ -525,4 +568,39 @@ remote_push :: proc(repo: ^git.Repository, force: bool, payload: ^Remote_Payload
 	}
 	verb := force ? "Force-pushed (with lease)" : "Pushed"
 	return fmt.tprintf("%s %s to %s.", verb, short, target), false
+}
+
+// Pushes refs/tags/<name>:refs/tags/<name> for one tag, or for every tag.
+// A tag that already exists on the remote at another commit stops the push
+// before anything is sent (checked during negotiation, like git push).
+@(private)
+remote_push_tags :: proc(repo: ^git.Repository, tag, remote_name: string, payload: ^Remote_Payload) -> (string, bool) {
+	names := make([dynamic]string, context.temp_allocator)
+	if tag != "" {
+		append(&names, tag)
+	} else {
+		list: git.Strarray
+		if git.tag_list(&list, repo) != git.OK do return git_error("Could not list tags"), true
+		for i in 0..<int(list.count) do append(&names, strings.clone(string(list.strings[i]), context.temp_allocator))
+		git.strarray_dispose(&list)
+		if len(names) == 0 do return "There are no tags to push.", true
+	}
+	specs := make([dynamic]cstring, context.temp_allocator)
+	for name in names do append(&specs, cstring_temp(fmt.tprintf("refs/tags/%s:refs/tags/%s", name, name)))
+	options: git.Push_Options
+	if git.push_options_init(&options, git.PUSH_OPTIONS_VERSION) != git.OK do return git_error("Could not prepare the push"), true
+	options.callbacks.credentials = remote_credentials
+	options.callbacks.push_negotiation = remote_negotiation
+	options.callbacks.payload = payload
+	payload.keep_tags = true
+	result := git.push(repo, specs[:], cstring_temp(remote_name), &options)
+	what := tag != "" ? fmt.tprintf("tag %s", tag) : fmt.tprintf("%d tag%s", len(names), len(names) == 1 ? "" : "s")
+	if result != git.OK {
+		message := git.last_error_message()
+		if payload.tag_rejected || strings.contains(message, "already exists") {
+			return fmt.tprintf("Could not push %s: a tag with the same name points elsewhere on %s. Rename or delete one of them.", what, remote_name), true
+		}
+		return fmt.tprintf("%s.%s", git_error(fmt.tprintf("Pushing %s failed", what)), remote_auth_hint(result, payload)), true
+	}
+	return fmt.tprintf("Pushed %s to %s.", what, remote_name), false
 }

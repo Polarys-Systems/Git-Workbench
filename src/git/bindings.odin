@@ -183,6 +183,32 @@ foreign libgit2 {
 	reference_is_remote :: proc(ref: ^Reference) -> c.int ---
 	reference_is_tag :: proc(ref: ^Reference) -> c.int ---
 	reference_name_to_id :: proc(out: ^Oid, repo: ^Repository, name: cstring) -> c.int ---
+	reference_delete :: proc(ref: ^Reference) -> c.int ---
+	// Follows tags (annotated or not) to an object of `type` (OBJECT_COMMIT...).
+	reference_peel :: proc(out: ^^Object, ref: ^Reference, type: c.int) -> c.int ---
+	reference_name_is_valid :: proc(valid: ^c.int, refname: cstring) -> c.int ---
+
+	object_lookup :: proc(out: ^^Object, repo: ^Repository, id: ^Oid, type: c.int) -> c.int ---
+	object_id :: proc(object: ^Object) -> ^Oid ---
+	object_free :: proc(object: ^Object) ---
+
+	// Creates refs/heads/<name> at `target`; EEXISTS unless force is set.
+	branch_create :: proc(out: ^^Reference, repo: ^Repository, branch_name: cstring, target: ^Commit, force: c.int) -> c.int ---
+	// Refuses the checked-out branch.
+	branch_delete :: proc(branch: ^Reference) -> c.int ---
+	branch_name_is_valid :: proc(valid: ^c.int, name: cstring) -> c.int ---
+
+	// An annotated tag object plus refs/tags/<name>; EEXISTS unless force is set.
+	tag_create :: proc(oid: ^Oid, repo: ^Repository, tag_name: cstring, target: ^Object, tagger: ^Signature, message: cstring, force: c.int) -> c.int ---
+	tag_create_lightweight :: proc(oid: ^Oid, repo: ^Repository, tag_name: cstring, target: ^Object, force: c.int) -> c.int ---
+	tag_delete :: proc(repo: ^Repository, tag_name: cstring) -> c.int ---
+	tag_list :: proc(tag_names: ^Strarray, repo: ^Repository) -> c.int ---
+	tag_lookup :: proc(out: ^^Tag, repo: ^Repository, id: ^Oid) -> c.int ---
+	tag_free :: proc(tag: ^Tag) ---
+	// Both borrow the tag's storage.
+	tag_message :: proc(tag: ^Tag) -> cstring ---
+	tag_tagger :: proc(tag: ^Tag) -> ^Signature ---
+
 	// Both iterator families return ITEROVER when exhausted. Each returned
 	// Reference is owned by the caller and must be released with reference_free.
 	reference_iterator_new :: proc(out: ^^Reference_Iterator, repo: ^Repository) -> c.int ---

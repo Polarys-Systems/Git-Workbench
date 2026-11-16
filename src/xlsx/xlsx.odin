@@ -30,6 +30,7 @@ Workbook_Text :: struct {
 	compare: string,
 	display: []string, // Line i of `text`, without its newline.
 	lines: []Line_Ref, // One per line of text.
+	cells: [][]Sheet_Cell, // One per line of text; empty for sheet headers.
 	sheets: []string,
 	arena: ^virtual.Arena, // Owns everything above.
 }
@@ -40,6 +41,14 @@ workbook_text_destroy :: proc(w: ^Workbook_Text, allocator := context.allocator)
 		free(w.arena, allocator)
 	}
 	w^ = {}
+}
+
+// One non-empty cell of a row, for spreadsheet-like display.
+Sheet_Cell :: struct {
+	col: int,        // 1-based column.
+	value: string,   // What Excel shows: the cached result for formulas.
+	formula: string, // Without the leading "="; empty for plain values.
+	compare: string, // The cell as the diff compares it (formulas in R1C1).
 }
 
 // True for the SpreadsheetML package formats this reader understands.
@@ -69,6 +78,7 @@ Shared_Formula :: struct {
 Cell :: struct {
 	col: int,
 	text, compare: string,
+	value, formula: string,
 }
 
 @(private)
@@ -77,6 +87,7 @@ Reader :: struct {
 	shared_strings: [dynamic]string,
 	out, compare: strings.Builder,
 	lines: [dynamic]Line_Ref,
+	cells: [dynamic][]Sheet_Cell,
 }
 
 // Converts .xlsx bytes to text. Returns a non-empty error when the workbook
@@ -143,6 +154,7 @@ convert_workbook :: proc(data: []u8, allocator: runtime.Allocator) -> (result: W
 		strings.write_byte(&r.out, '\n')
 		strings.write_string(&r.compare, strings.to_string(r.out)[header_start:])
 		append(&r.lines, Line_Ref{i, 0})
+		append(&r.cells, nil)
 		if ok && strings.has_suffix(type, "/worksheet") {
 			if e := parse_worksheet(&r, sheet_xml, i); e != "" do return result, e
 		}
@@ -152,6 +164,7 @@ convert_workbook :: proc(data: []u8, allocator: runtime.Allocator) -> (result: W
 	if len(result.text) > 0 do result.display = strings.split(result.text[:len(result.text) - 1], "\n")
 	assert(len(result.display) == len(r.lines))
 	result.lines = r.lines[:]
+	result.cells = r.cells[:]
 	result.sheets = names
 	return result, ""
 }
@@ -370,8 +383,8 @@ parse_worksheet :: proc(r: ^Reader, src: string, sheet: int) -> string {
 						}
 					}
 				}
-				text, compare := cell_text(r, type, strings.to_string(value), has_value, strings.to_string(inline), f, has_formula, row, cell_col)
-				if text != "" do append(&cells, Cell{cell_col, text, compare})
+				text, compare, shown, formula_text := cell_text(r, type, strings.to_string(value), has_value, strings.to_string(inline), f, has_formula, row, cell_col)
+				if text != "" do append(&cells, Cell{cell_col, text, compare, shown, formula_text})
 			case "row":
 				if !in_sheet_data do continue
 				if len(cells) > 0 {
@@ -387,7 +400,7 @@ parse_worksheet :: proc(r: ^Reader, src: string, sheet: int) -> string {
 }
 
 @(private)
-cell_text :: proc(r: ^Reader, type, raw: string, has_value: bool, inline, formula: string, has_formula: bool, row, col: int) -> (text, compare: string) {
+cell_text :: proc(r: ^Reader, type, raw: string, has_value: bool, inline, formula: string, has_formula: bool, row, col: int) -> (text, compare, value, formula_text: string) {
 	shown := raw
 	switch type {
 	case "s":
@@ -401,11 +414,13 @@ cell_text :: proc(r: ^Reader, type, raw: string, has_value: bool, inline, formul
 		b := strings.builder_make()
 		formula_to_r1c1(&b, formula, row, col)
 		relative := strings.to_string(b)
-		if shown == "" do return strings.concatenate({"=", formula}), strings.concatenate({"=", relative})
-		return strings.concatenate({"=", formula, " [", shown, "]"}), strings.concatenate({"=", relative, " [", shown, "]"})
+		// `shown` and `formula` may borrow builders reused by the next cell.
+		kept := strings.clone(formula)
+		if shown == "" do return strings.concatenate({"=", formula}), strings.concatenate({"=", relative}), "", kept
+		return strings.concatenate({"=", formula, " [", shown, "]"}), strings.concatenate({"=", relative, " [", shown, "]"}), strings.clone(shown), kept
 	}
 	text = strings.clone(shown)
-	return text, text
+	return text, text, text, ""
 }
 
 // Writes the row as a single line: newlines inside cells become "\n" and other
@@ -415,6 +430,9 @@ write_row :: proc(r: ^Reader, cells: []Cell, sheet, row: int) -> string {
 	write_cells(&r.out, cells, false)
 	write_cells(&r.compare, cells, true)
 	append(&r.lines, Line_Ref{sheet, row})
+	structured := make([]Sheet_Cell, len(cells))
+	for c, i in cells do structured[i] = Sheet_Cell{c.col, c.value, c.formula, c.compare}
+	append(&r.cells, structured)
 	if strings.builder_len(r.out) > MAX_TEXT_SIZE do return "the workbook is too large to compare as text"
 	return ""
 }

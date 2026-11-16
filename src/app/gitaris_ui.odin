@@ -32,7 +32,14 @@ gitaris_ui :: proc(ctx: ^ui.UiContext, face, title, welcome, icons: ^font_core.F
 		}
 		content_end = ctx.n_boxes
 		gitaris_menu_ui(ctx, face, title, icons, state, logical_width, scale)
+		if state.dialog != .NONE {
+			gitaris_dialog_ui(ctx, face, title, code_face, state, logical_width, logical_height, scale)
+		} else {
+			gitaris_modal_first_box = -1
+		}
 	} else {
+		state.dialog = .NONE
+		gitaris_modal_first_box = -1
 		gitaris_welcome_ui(ctx, face, title, welcome, icons, state, window, logical_width, logical_height, scale)
 		content_end = ctx.n_boxes
 	}

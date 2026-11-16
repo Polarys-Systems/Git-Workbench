@@ -25,6 +25,12 @@ Diff_Similarity_Metric :: struct {}
 Commit_Builder   :: struct {}
 Rebase           :: struct {}
 Blob             :: struct {}
+Tag              :: struct {}
+
+// git_object_t values.
+OBJECT_ANY    :: c.int(-2)
+OBJECT_COMMIT :: c.int(1)
+OBJECT_TAG    :: c.int(4)
 
 // repository_state results (git_repository_state_t). Later values are sequences,
 // bisect, rebases and mailbox application.

@@ -19,6 +19,7 @@ Branch :: struct {
 Commit :: struct {
 	message, hash, author, date: string,
 	refs: string,
+	tags: string, // Tags naming this commit, joined with ", ".
 	graph: Graph_Row,
 }
 
@@ -27,8 +28,11 @@ Model :: struct {
 	repo: ^git.Repository,
 	identity: ^git.Signature,
 	branches: [dynamic]Branch,
+	tags: [dynamic]Tag,
 	commits: [dynamic]Commit,
 	selected: int,
+	// The tag whose history is shown instead of a branch's; empty otherwise.
+	scoped_tag: string,
 	walk: ^git.Revwalk,
 	has_more: bool,
 	all_branches: bool,
@@ -62,6 +66,7 @@ clear_history :: proc(model: ^Model) {
 		delete(commit.author)
 		delete(commit.date)
 		delete(commit.refs)
+		delete(commit.tags)
 		delete(commit.graph.edges)
 	}
 	clear(&model.commits)
@@ -80,6 +85,8 @@ destroy :: proc(model: ^Model) {
 		delete(branch.ref_name)
 	}
 	delete(model.branches)
+	clear_tags(model)
+	delete(model.scoped_tag)
 	git.signature_free(model.identity)
 	git.repository_free(model.repo)
 	config_destroy(&model.config)
@@ -119,6 +126,7 @@ open :: proc(model: ^Model, config: Config) -> string {
 	}
 	next.config = config_clone(config)
 	if err := load_branches(&next); err != "" do return err
+	if err := load_tags(&next); err != "" do return err
 	load_sync(&next)
 	load_submodules(&next)
 	if err := select_history(&next, next.selected, true); err != "" do return err
@@ -184,10 +192,27 @@ select_branch :: proc(model: ^Model, index: int) -> string {
 }
 
 select_history :: proc(model: ^Model, index: int, all_branches: bool) -> string {
+	return start_history(model, index, all_branches, "", nil)
+}
+
+// Walks from the given branch (or all of them), or from `tips` when a tag
+// scopes the view; `index` stays the selected branch either way.
+@(private)
+start_history :: proc(model: ^Model, index: int, all_branches: bool, tag: string, tips: []git.Oid) -> string {
 	if index < 0 || index >= len(model.branches) do return "This branch is no longer available. Refresh the project."
 	branch := model.branches[index]
 	walk: ^git.Revwalk
-	if all_branches || !branch.unborn {
+	if tips != nil {
+		if git.revwalk_new(&walk, model.repo) != git.OK do return git_error("Could not open commit history")
+		_ = git.revwalk_sorting(walk, git.SORT_TOPOLOGICAL | git.SORT_TIME)
+		for &tip in tips {
+			if git.revwalk_push(walk, &tip) != git.OK {
+				err := git_error("Could not read the tag's history")
+				git.revwalk_free(walk)
+				return err
+			}
+		}
+	} else if all_branches || !branch.unborn {
 		if git.revwalk_new(&walk, model.repo) != git.OK do return git_error("Could not open commit history")
 		if git.revwalk_sorting(walk, git.SORT_TOPOLOGICAL | git.SORT_TIME) != git.OK {
 			err := git_error("Could not read branch history")
@@ -205,9 +230,12 @@ select_history :: proc(model: ^Model, index: int, all_branches: bool) -> string 
 			}
 		}
 	}
+	scope := strings.clone(tag)
 	clear_history(model)
+	delete(model.scoped_tag)
+	model.scoped_tag = scope
 	model.selected = index
-	model.all_branches = all_branches
+	model.all_branches = all_branches && tips == nil
 	model.walk = walk
 	model.has_more = walk != nil
 	return load_more(model)
@@ -248,6 +276,7 @@ load_more :: proc(model: ^Model) -> string {
 			author = strings.clone(author != nil ? string(author.name) : "Unknown author"),
 			date = strings.clone(time.to_string_yyyy_mm_dd(stamp, date[:])),
 			refs = strings.clone(strings.to_string(refs)),
+			tags = strings.clone(tags_at(model, &id)),
 			graph = graph_append(&model.graph, id, parents),
 		})
 	}
@@ -256,6 +285,7 @@ load_more :: proc(model: ^Model) -> string {
 
 refresh :: proc(model: ^Model) -> string {
 	selected := strings.clone(model.branches[model.selected].ref_name, context.temp_allocator)
+	scoped_tag := strings.clone(model.scoped_tag, context.temp_allocator)
 	next: Model
 	if err := open(&next, model.config); err != "" do return err
 	for branch, i in next.branches {
@@ -265,6 +295,13 @@ refresh :: proc(model: ^Model) -> string {
 				return err
 			}
 			break
+		}
+	}
+	// A tag's history stays in view while the tag exists.
+	if tag := tag_index(next, scoped_tag); scoped_tag != "" && tag >= 0 {
+		if err := select_tag(&next, tag); err != "" {
+			destroy(&next)
+			return err
 		}
 	}
 	destroy(model)

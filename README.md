@@ -61,7 +61,19 @@ commits are compared with an empty tree. Renames, binary files, empty files,
 and commits without file changes are identified explicitly. Browsing changes
 does not modify HEAD, the index, or working files.
 
-Excel workbooks (`.xlsx`, `.xlsm`, `.xltx`, `.xltm`) are compared as text: each
+Excel workbooks (`.xlsx`, `.xlsm`, `.xltx`, `.xltm`) open as a spreadsheet:
+lettered columns, numbered rows, gridlines and one tab per sheet along the
+bottom, like Excel. Every row of the sheet is shown. Added rows are green,
+removed rows red (numbered `−8`, their row in the previous version), and in a
+changed row the cells that differ are amber; a colored bar beside the row
+number marks each kind. Cells show values, numbers right-aligned; a formula
+cell shows its cached result. Click a cell (or use the arrow keys after
+clicking) to see its formula in the formula bar above the grid and, for a
+changed cell, what it was before. **↑**/**↓** step through the changed rows,
+**Changed rows only** hides the rest, and sheet tabs count their changed rows
+(or say **new**/**removed**). A thick line between rows marks skipped empty rows.
+
+**Text** (beside **Grid**) shows the same comparison as text: each
 sheet starts with a `=== Sheet name ===` line, followed by one line per non-empty
 row with cells separated by ` | `. The line numbers in the gutter are spreadsheet
 row numbers, and hunk headers name the sheets they touch. Formulas appear as
@@ -114,6 +126,43 @@ message or an empty index is refused. Committing after resolving a merge,
 revert, or cherry-pick concludes it as `git commit` would; during a rebase,
 finish with Git. Git hooks are not run and commits are not signed. History
 and the working tree reload afterwards, and the menu bar confirms the commit.
+
+**Editor** (beside Commit) opens a larger commit window over the workspace:
+a **Summary** line with a character count (50 is ideal; over 72 is flagged,
+since Git tools cut it off), a monospaced **Description** that counts lines over
+72 characters, and the list of staged files, plus how many changed files are
+not staged. Enter in the summary moves to the description; **Ctrl+Enter**
+commits; **Esc** or **Cancel** closes it and keeps the draft in the small box
+(summary, blank line, description), so nothing is lost.
+
+### Branches and tags
+
+The sidebar switches between **Branches** and **Tags**; **+** creates a branch
+or a tag at HEAD. On a commit's changes, **Branch…** and **Tag…** create one at
+that commit instead. Names are checked as you type (Git's rules: no spaces,
+`..`, `~`, `^`, `:` and so on), and existing names are refused.
+
+- **New branch** is `git branch <name> <commit>`. With **Check out the new
+  branch** (the default) it is also `git switch`: files are updated safely, and
+  uncommitted changes come along unless the switch would overwrite them, in
+  which case nothing changes and the branch is created but not checked out.
+- With a branch selected in the sidebar, **Check out** switches to it the same
+  way. A remote-tracking branch such as `origin/topic` checks out the local
+  `topic`, creating it to track `origin/topic` when it does not exist yet.
+  **Delete** (local branches other than the checked-out one, after a confirming
+  click) is `git branch -D`; the menu bar names the old tip so it can be
+  recreated.
+- **New tag** without a message is a lightweight tag; with a message it is an
+  annotated tag, tagged by the name and email from Preferences. **Push the tag
+  to origin after creating it** pushes it right away.
+
+Tags appear as lime chips on their commits in the history (search finds them
+too). Choosing a tag in the sidebar shows the history leading to it; **Push
+tag** sends it to the branch's remote (origin otherwise) and **Delete** removes
+the local tag after a confirming click (a pushed tag stays on the remote).
+**Push tags** in Sync pushes every local tag. Tag pushes never replace a tag
+that already exists on the remote with a different commit. Switching branches
+and creating refs wait while a network operation is running.
 
 ### Sync: push, force push with lease, and pull
 
@@ -324,6 +373,12 @@ odin test ./src/app -linker:lld -define:TEXT_GPU_TESTS=true
   is its view, and `gitaris.odin` keeps the parent/submodule breadcrumb.
 - `src/workspace/stage.odin`: per-file stage state, Stage/Unstage of selected
   files, and committing the index with the configured identity.
+- `src/workspace/refs.odin`: tags, creating/checking out/deleting branches,
+  and creating/deleting tags; tag pushes run in the `sync.odin` worker.
+- `src/workspace/workbook_grid.odin`: lays a workbook diff out as sheets of
+  rows and cells for `src/app/gitaris_workbook_ui.odin`, the spreadsheet view.
+- `src/app/gitaris_dialogs_ui.odin`: the commit editor, New branch and New tag
+  windows, drawn over the workspace.
 - `src/app/*_tests.odin`: application and rendering checks alongside the code.
 - `src/workspace`: repository operations and persisted configuration.
 - `src/xlsx`: ZIP and streaming XML readers that turn workbooks into diffable

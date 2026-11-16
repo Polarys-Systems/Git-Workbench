@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:strings"
 
 import font_core "../font"
+import "../git"
 import "../ui"
 import "../workspace"
 
@@ -58,29 +59,46 @@ gitaris_sidebar_ui :: proc(ctx: ^ui.UiContext, face, title, icons: ^font_core.Fa
 			y += 38
 		}
 		template_box(ctx, {x, y, iw, 1}, TEMPLATE_LINE, 0, scale)
-		y += 12
-		template_label(ctx, title, "Branches", {x, y, iw - 40, 20}, 13, TEMPLATE_TEXT, scale)
-		template_label(ctx, face, fmt.tprintf("%d", len(model.branches)), {x + iw - 40, y, 40, 20}, 11, TEMPLATE_MUTED, scale, {.RIGHT})
-		y += 26
-		viewport := ui.Rect2d{x, y, iw, max(40, bottom - 56 - submodule_height - y)}
-		first, last, offset := gitaris_scroll_begin(ctx, viewport, len(model.branches), 36, scale)
-		chosen := -1
-		for i in first..<last {
-			branch := model.branches[i]
-			ry := viewport.y + f32(i) * 36 - offset
-			selected := i == model.selected && !model.all_branches
-			if gitaris_row_button(ctx, face, branch.ref_name, {x, ry, iw - 6, 32}, selected, scale) do chosen = i
-			template_label(ctx, icons, "", {x + 8, ry, 18, 32}, 13, branch.remote ? TEMPLATE_MUTED : TEMPLATE_ACCENT, scale)
-			tag_w: f32 = branch.head ? 46 : 0
-			template_label(ctx, face, branch.name, {x + 30, ry, iw - 44 - tag_w, 32}, 13, TEMPLATE_TEXT, scale)
-			if branch.head {
-				template_tag(ctx, face, branch.unborn ? "NEW" : "HEAD", x + iw - 50, ry + 7, TEMPLATE_ACCENT, TEMPLATE_LIGHT, scale)
+		y += 10
+		// Branches and tags share the list: a two-way switch, plus New.
+		seg_w := (iw - 40) * 0.5
+		if gitaris_button(ctx, face, fmt.tprintf("Branches  %d", len(model.branches)), {x, y, seg_w, 28}, scale, !state.sidebar_tags, id = "sidebar-branches") {
+			state.sidebar_tags = false
+		}
+		if gitaris_button(ctx, face, fmt.tprintf("Tags  %d", len(model.tags)), {x + seg_w + 4, y, seg_w, 28}, scale, state.sidebar_tags, id = "sidebar-tags") {
+			state.sidebar_tags = true
+		}
+		if gitaris_button(ctx, face, "+", {x + iw - 32, y, 32, 28}, scale, id = "sidebar-new") {
+			if workspace.remote_busy(&state.remote) {
+				gitaris_error(state, "Wait for the running network operation to finish first.")
+			} else {
+				gitaris_open_ref_dialog(ctx, state, state.sidebar_tags ? .TAG : .BRANCH, "", gitaris_head_target(state))
 			}
 		}
-		gitaris_scroll_end(ctx, viewport, scale)
-		if chosen >= 0 && (chosen != model.selected || model.all_branches) {
-			gitaris_error(state, workspace.select_branch(model, chosen))
-			gitaris_reset_windows(ctx, "history", "commit-files", "commit-diff")
+		y += 36
+		viewport := ui.Rect2d{x, y, iw, max(40, bottom - 56 - submodule_height - y)}
+		if state.sidebar_tags {
+			gitaris_sidebar_tags(ctx, face, icons, state, viewport, scale)
+		} else {
+			first, last, offset := gitaris_scroll_begin(ctx, viewport, len(model.branches), 36, scale)
+			chosen := -1
+			for i in first..<last {
+				branch := model.branches[i]
+				ry := viewport.y + f32(i) * 36 - offset
+				selected := i == model.selected && !model.all_branches && model.scoped_tag == ""
+				if gitaris_row_button(ctx, face, branch.ref_name, {x, ry, iw - 6, 32}, selected, scale) do chosen = i
+				template_label(ctx, icons, "", {x + 8, ry, 18, 32}, 13, branch.remote ? TEMPLATE_MUTED : TEMPLATE_ACCENT, scale)
+				tag_w: f32 = branch.head ? 46 : 0
+				template_label(ctx, face, branch.name, {x + 30, ry, iw - 44 - tag_w, 32}, 13, TEMPLATE_TEXT, scale)
+				if branch.head {
+					template_tag(ctx, face, branch.unborn ? "NEW" : "HEAD", x + iw - 50, ry + 7, TEMPLATE_ACCENT, TEMPLATE_LIGHT, scale)
+				}
+			}
+			gitaris_scroll_end(ctx, viewport, scale)
+			if chosen >= 0 && (chosen != model.selected || model.all_branches || model.scoped_tag != "") {
+				gitaris_error(state, workspace.select_branch(model, chosen))
+				gitaris_reset_windows(ctx, "history", "commit-files", "commit-diff")
+			}
 		}
 		template_box(ctx, {x, bottom - 48, iw, 1}, TEMPLATE_LINE, 0, scale)
 		template_label(ctx, face, model.config.username, {x, bottom - 42, iw, 18}, 12, TEMPLATE_TEXT, scale)
@@ -142,10 +160,13 @@ gitaris_history_ui :: proc(ctx: ^ui.UiContext, face, title, icons: ^font_core.Fa
 	template_label(ctx, title, "History", {x, y0, 90, 32}, 20, TEMPLATE_TEXT, scale)
 	branch := model.branches[model.selected]
 	scope := model.all_branches ? "All branches" : branch.name
-	chip_w := min(template_text_width(ctx, face, scope, 12, scale) + 40, cw - 470)
-	template_box(ctx, {x + 90, y0 + 4, chip_w, 24}, TEMPLATE_BUTTON, 12, scale)
-	template_label(ctx, icons, "", {x + 100, y0 + 4, 16, 24}, 12, TEMPLATE_ACCENT, scale)
+	if model.scoped_tag != "" do scope = model.scoped_tag
+	chip_w := max(80, min(template_text_width(ctx, face, scope, 12, scale) + 40, cw - 680))
+	template_box(ctx, {x + 90, y0 + 4, chip_w, 24}, model.scoped_tag != "" ? TEMPLATE_HIGHLIGHT : TEMPLATE_BUTTON, 12, scale)
+	template_label(ctx, icons, model.scoped_tag != "" ? "" : "", {x + 100, y0 + 4, 16, 24}, 12, TEMPLATE_ACCENT, scale)
 	template_label(ctx, face, scope, {x + 120, y0 + 4, chip_w - 34, 24}, 12, TEMPLATE_TEXT, scale)
+	_ = gitaris_scope_actions(ctx, face, state, x + 98 + chip_w, y0 + 2, scale)
+	if state.menu != .NONE || len(model.branches) == 0 do return
 	if gitaris_button(ctx, face, "Refresh", {x + cw - 84, y0 + 1, 84, 30}, scale) {
 		gitaris_error(state, workspace.refresh(model))
 		ctx.windows[ctx.window_index].scroll_offset = {}
@@ -170,7 +191,8 @@ gitaris_history_ui :: proc(ctx: ^ui.UiContext, face, title, icons: ^font_core.Fa
 	for commit, i in model.commits {
 		if query == "" || strings.contains(strings.to_lower(commit.message, context.temp_allocator), query) ||
 			strings.contains(strings.to_lower(commit.author, context.temp_allocator), query) || strings.contains(commit.hash, query) ||
-			strings.contains(strings.to_lower(commit.refs, context.temp_allocator), query) {
+			strings.contains(strings.to_lower(commit.refs, context.temp_allocator), query) ||
+			strings.contains(strings.to_lower(commit.tags, context.temp_allocator), query) {
 			append(&matches, i)
 		}
 	}
@@ -195,7 +217,8 @@ gitaris_history_ui :: proc(ctx: ^ui.UiContext, face, title, icons: ^font_core.Fa
 		template_label(ctx, face, commit.message, {text_x, y + 7, text_width, 22}, 14, TEMPLATE_TEXT, scale)
 		metadata := fmt.tprintf("%s  ·  %s", commit.author, commit.date)
 		if commit.refs != "" do metadata = fmt.tprintf("%s  ·  %s", commit.refs, metadata)
-		template_label(ctx, face, metadata, {text_x, y + 28, text_width, 18}, 11, commit.refs != "" ? TEMPLATE_ACCENT : TEMPLATE_MUTED, scale)
+		chips := gitaris_tag_chips(ctx, face, commit.tags, text_x, y + 29, scale)
+		template_label(ctx, face, metadata, {text_x + chips, y + 28, text_width - chips, 18}, 11, commit.refs != "" ? TEMPLATE_ACCENT : TEMPLATE_MUTED, scale)
 		template_label(ctx, face, commit.hash[:min(8, len(commit.hash))], {rx + content_width - 92, y + 7, 76, 22}, 11, TEMPLATE_MUTED, scale, {.RIGHT})
 	}
 	if len(matches) == 0 {
@@ -223,4 +246,126 @@ gitaris_history_ui :: proc(ctx: ^ui.UiContext, face, title, icons: ^font_core.Fa
 	if model.has_more && gitaris_button(ctx, face, "Load more", {x + cw - 118, footer + 6, 118, 30}, scale) {
 		gitaris_error(state, workspace.load_more(model))
 	}
+}
+
+// The sidebar's tag list. Choosing a tag shows the history leading to it.
+gitaris_sidebar_tags :: proc(ctx: ^ui.UiContext, face, icons: ^font_core.Face, state: ^Gitaris, viewport: ui.Rect2d, scale: f32) {
+	model := &state.model
+	x, iw := viewport.x, viewport.width
+	first, last, offset := gitaris_scroll_begin(ctx, viewport, len(model.tags), 44, scale)
+	chosen := -1
+	for i in first..<last {
+		tag := model.tags[i]
+		ry := viewport.y + f32(i) * 44 - offset
+		if gitaris_row_button(ctx, face, fmt.tprintf("tag:%s", tag.name), {x, ry, iw - 6, 40}, model.scoped_tag == tag.name, scale) do chosen = i
+		template_label(ctx, icons, "", {x + 9, ry + 2, 18, 22}, 12, tag.annotated ? TEMPLATE_ACCENT : TEMPLATE_MUTED, scale)
+		template_label(ctx, face, tag.name, {x + 30, ry + 3, iw - 44, 20}, 13, TEMPLATE_TEXT, scale)
+		detail := fmt.tprintf("%s  ·  %s", gitaris_oid_short(tag.target), tag.annotated ? (tag.message != "" ? tag.message : "annotated") : "lightweight")
+		template_label(ctx, face, detail, {x + 30, ry + 22, iw - 44, 15}, 10, TEMPLATE_MUTED, scale)
+	}
+	if len(model.tags) == 0 {
+		template_label(ctx, face, "No tags yet. Use + or Tag… on a commit.", {x + 4, viewport.y + 8, iw - 8, 18}, 11, TEMPLATE_MUTED, scale)
+	}
+	gitaris_scroll_end(ctx, viewport, scale)
+	if chosen >= 0 && model.tags[chosen].name != model.scoped_tag {
+		gitaris_error(state, workspace.select_tag(model, chosen))
+		gitaris_reset_windows(ctx, "history", "commit-files", "commit-diff")
+	}
+}
+
+gitaris_oid_short :: proc(id: git.Oid) -> string {
+	hash: [65]u8
+	copy := id
+	_ = git.oid_tostr(raw_data(hash[:]), len(hash), &copy)
+	return strings.clone(string(cstring(raw_data(hash[:])))[:8], context.temp_allocator)
+}
+
+// Small chips for the tags on a commit row. Returns the width used.
+gitaris_tag_chips :: proc(ctx: ^ui.UiContext, face: ^font_core.Face, tags: string, x, y: f32, scale: f32) -> f32 {
+	if tags == "" do return 0
+	used: f32 = 0
+	rest := tags
+	for name in strings.split_iterator(&rest, ", ") {
+		used += template_tag(ctx, face, name, x + used, y, TEMPLATE_HIGHLIGHT, TEMPLATE_DARK, scale, 16) + 4
+	}
+	return used + 2
+}
+
+// Actions on the branch or tag being viewed, beside the history scope chip.
+// Deleting asks for a confirming second click. Returns the width used.
+gitaris_scope_actions :: proc(ctx: ^ui.UiContext, face: ^font_core.Face, state: ^Gitaris, x, y: f32, scale: f32) -> f32 {
+	model := &state.model
+	busy := workspace.remote_busy(&state.remote)
+	used: f32 = 0
+	if model.scoped_tag != "" {
+		key := fmt.tprintf("tag:%s", model.scoped_tag)
+		armed := state.delete_armed == key
+		name := strings.clone(model.scoped_tag, context.temp_allocator)
+		if !armed && gitaris_button(ctx, face, "Push tag", {x, y, 84, 28}, scale, id = "scope-push-tag") && !busy {
+			gitaris_tag_push(state, name)
+		}
+		if !armed do used += 90
+		if gitaris_button(ctx, face, armed ? "Confirm delete" : "Delete", {x + used, y, armed ? 120 : 70, 28}, scale, armed, id = "scope-delete-tag") {
+			if armed {
+				gitaris_disarm(state)
+				err := workspace.delete_tag(model, name)
+				gitaris_error(state, err)
+				if err == "" do gitaris_notice(state, fmt.tprintf("Deleted tag %s (local only; a pushed tag stays on the remote).", name))
+				gitaris_reset_windows(ctx, "history", "commit-files", "commit-diff")
+				return 0
+			}
+			gitaris_arm(state, key)
+		}
+		used += armed ? 126 : 76
+		if armed && gitaris_button(ctx, face, "Cancel", {x + used, y, 70, 28}, scale, id = "scope-delete-cancel") do gitaris_disarm(state)
+		if armed do used += 76
+		return used
+	}
+	if model.all_branches || model.selected < 0 || model.selected >= len(model.branches) do return 0
+	branch := model.branches[model.selected]
+	if branch.head || branch.ref_name == "HEAD" do return 0
+	key := fmt.tprintf("branch:%s", branch.ref_name)
+	armed := state.delete_armed == key
+	if !armed {
+		if gitaris_button(ctx, face, "Check out", {x, y, 90, 28}, scale, true, id = "scope-checkout") {
+			if busy {
+				gitaris_error(state, "Wait for the running network operation to finish before switching branches.")
+			} else {
+				notice, err := workspace.checkout_branch(model, model.selected)
+				gitaris_error(state, err)
+				if notice != "" do gitaris_notice(state, notice)
+				gitaris_reset_windows(ctx, "history", "branches", "commit-files", "commit-diff")
+				return 0
+			}
+		}
+		used += 96
+	}
+	if branch.remote do return used
+	if gitaris_button(ctx, face, armed ? "Confirm delete" : "Delete", {x + used, y, armed ? 120 : 70, 28}, scale, armed, id = "scope-delete-branch") {
+		if armed {
+			gitaris_disarm(state)
+			notice, err := workspace.delete_branch(model, model.selected)
+			gitaris_error(state, err)
+			if notice != "" do gitaris_notice(state, notice)
+			gitaris_reset_windows(ctx, "history", "branches", "commit-files", "commit-diff")
+			return 0
+		}
+		gitaris_arm(state, key)
+	}
+	used += armed ? 126 : 76
+	if armed {
+		if gitaris_button(ctx, face, "Cancel", {x + used, y, 70, 28}, scale, id = "scope-delete-cancel") do gitaris_disarm(state)
+		used += 76
+	}
+	return used
+}
+
+gitaris_arm :: proc(state: ^Gitaris, key: string) {
+	delete(state.delete_armed)
+	state.delete_armed = strings.clone(key)
+}
+
+gitaris_disarm :: proc(state: ^Gitaris) {
+	delete(state.delete_armed)
+	state.delete_armed = ""
 }
