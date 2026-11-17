@@ -3,7 +3,9 @@ package ui
 import "core:strings"
 
 Mouse_Button :: enum { LEFT, RIGHT, MIDDLE }
-Key :: enum { BACKSPACE, DELETE, RETURN, ESCAPE, LEFT, RIGHT, UP, DOWN, HOME, END, CTRL, SPACE }
+// Letter keys are only used for Ctrl shortcuts; typed text arrives through input_text.
+Key :: enum { BACKSPACE, DELETE, RETURN, ESCAPE, LEFT, RIGHT, UP, DOWN, HOME, END, CTRL, SPACE,
+	SHIFT, PAGE_UP, PAGE_DOWN, A, C, X }
 
 UiInput :: struct {
 	mouse_down, mouse_pressed, mouse_released: [Mouse_Button]bool,

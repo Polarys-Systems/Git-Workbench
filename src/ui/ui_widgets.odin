@@ -51,18 +51,34 @@ check :: proc(self: ^UiContext, str: string, value: ^bool, rect := AUTO_RECT, id
 }
 
 // The caller owns the UTF-8 builder. IDs must be unique within a window.
+// Editors support mouse placement and dragging, Shift selection, Ctrl+A/C/X
+// (copied text goes to self.clipboard) and Ctrl+V through input_text.
 input_box :: proc(self: ^UiContext, id: string, value: ^strings.Builder, rect := AUTO_RECT) -> UiResult {
-	return edit_box(self, id, value, rect, false)
+	result, _, _ := edit_box(self, id, value, rect, false)
+	return result
 }
 
 textbox :: proc(self: ^UiContext, id: string, value: ^strings.Builder, rect := AUTO_RECT) -> UiResult {
-	return edit_box(self, id, value, rect, true)
+	result, _, _ := edit_box(self, id, value, rect, true)
+	return result
+}
+
+// A multiline editor for whole documents. Tab inserts a tab (see wants_tab),
+// PageUp/PageDown move by a screen, and the view keeps its position in the
+// caller's scroll storage (pixels), which the wheel and the caret update and a
+// caller's scrollbar may set. content and view are the text extent and the
+// visible text area, both in pixels, for drawing that scrollbar.
+text_editor :: proc(self: ^UiContext, id: string, value: ^strings.Builder, rect: Rect2d,
+	scroll: ^[2]f32) -> (result: UiResult, content, view: [2]f32) {
+	assert(scroll != nil)
+	return edit_box(self, id, value, rect, true, false, true, scroll)
 }
 
 // A one-line editor for passwords: it draws one '*' per character, so the
-// text is never shown or copied into the element's cached text.
+// text is never shown or copied into the element's cached text or clipboard.
 secret_box :: proc(self: ^UiContext, id: string, value: ^strings.Builder, rect := AUTO_RECT) -> UiResult {
-	return edit_box(self, id, value, rect, false, true)
+	result, _, _ := edit_box(self, id, value, rect, false, true)
+	return result
 }
 
 @(private)
@@ -149,44 +165,186 @@ insert_input :: proc(self: ^UiContext, value: ^strings.Builder, multiline: bool)
 }
 
 @(private)
-edit_box :: proc(self: ^UiContext, id: string, value: ^strings.Builder, rect: Rect2d, multiline: bool, masked := false) -> UiResult {
+rune_floor :: proc(text: []u8, cursor: int) -> int {
+	i := clamp(cursor, 0, len(text))
+	for i > 0 && i < len(text) && !utf8.rune_start(text[i]) do i -= 1
+	return i
+}
+
+@(private)
+count_lines :: proc(text: []u8) -> int {
+	n := 0
+	for byte in text do if byte == '\n' do n += 1
+	return n
+}
+
+// Moves by whole lines, keeping the column (in runes) where the line allows.
+@(private)
+move_lines :: proc(text: []u8, cursor, delta: int) -> int {
+	start := line_start(text, cursor)
+	column := 0
+	for i := start; i < cursor; i = next_rune(text, i) do column += 1
+	for _ in 0..<abs(delta) {
+		start = line_start(text, delta < 0 ? max(0, start - 1) : min(len(text), line_end(text, start) + 1))
+	}
+	result := start
+	for column > 0 && result < len(text) && text[result] != '\n' {
+		result = next_rune(text, result)
+		column -= 1
+	}
+	return result
+}
+
+@(private)
+box_line_height :: proc(self: ^UiContext, box: ^UiBox) -> f32 {
+	if box._line_height <= 0 do box._line_height = measure(self, "M", box.style).y
+	return box._line_height
+}
+
+// Offset of a position from the text origin: x within its line, y by line.
+@(private)
+text_offset :: proc(self: ^UiContext, box: ^UiBox, text: []u8, position, line: int, masked: bool) -> [2]f32 {
+	before := string(text[line_start(text, position):position])
+	if masked do before = strings.repeat("*", utf8.rune_count(before), context.temp_allocator)
+	return {measure(self, before, box.style).x, f32(line) * box_line_height(self, box)}
+}
+
+// The caret position nearest to a point given relative to the text origin.
+@(private)
+caret_from_point :: proc(self: ^UiContext, box: ^UiBox, text: []u8, point: [2]f32, multiline: bool) -> int {
+	start := 0
+	if multiline && point.y > 0 {
+		for line := int(point.y / box_line_height(self, box)); line > 0; line -= 1 {
+			end := line_end(text, start)
+			if end >= len(text) do break
+			start = end + 1
+		}
+	}
+	end := line_end(text, start)
+	if end > start && text[end - 1] == '\r' do end -= 1
+	// Prefix widths only grow, so a binary search keeps very long lines cheap.
+	lo, hi := start, end
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		for mid > lo && mid < len(text) && !utf8.rune_start(text[mid]) do mid -= 1
+		if mid == lo do mid = next_rune(text, lo)
+		if measure(self, string(text[start:mid]), box.style).x <= point.x {
+			lo = mid
+		} else {
+			hi = previous_rune(text, mid)
+		}
+	}
+	if lo < end {
+		next := next_rune(text, lo)
+		left := measure(self, string(text[start:lo]), box.style).x
+		right := measure(self, string(text[start:next]), box.style).x
+		if point.x - left > right - point.x do lo = next
+	}
+	return lo
+}
+
+// Without caller storage the view follows the caret drawn last frame.
+@(private)
+caret_view_offset :: proc(box: ^UiBox, view: [2]f32, multiline: bool) -> [2]f32 {
+	return {max(0, box._caret_offset.x - view.x), multiline ? max(0, box._caret_offset.y + box.style.font_size - view.y) : 0}
+}
+
+@(private)
+edit_box :: proc(self: ^UiContext, id: string, value: ^strings.Builder, rect: Rect2d, multiline: bool,
+	masked := false, tabs := false, scroll: ^[2]f32 = nil) -> (result: UiResult, content, view: [2]f32) {
 	assert(value != nil && id != "" && !(masked && multiline))
 	align := multiline ? UiAlignments{.TOP} : UiAlignments{.NONE}
 	box := new_box(self, shown_text(value, masked), align, {.HOVERABLE, .CLICKABLE, .EDITABLE}, rect, id)
+	pad := max(0, box.style.padding)
+	view = {max(0, box.rect.width - 2 * pad - 1), max(0, box.rect.height - 2 * pad)}
+	if !box.focused && self.edit_id == box.id do self.edit_id = 0
+	// Focus that just arrived, or a caret the application moved, starts
+	// without a selection and brings the caret into view.
+	external := box.focused && (self.edit_id != box.id || self.edit_caret != self.caret)
+	offset: [2]f32
+	if scroll != nil {
+		offset = scroll^
+		if self.input.scroll != {} && clip_rect(box.boundary_rect, self.mouse_pos) &&
+			(!self.had_elements || self.hover_window == box.window_index) {
+			offset -= self.input.scroll * box_line_height(self, box) * 3
+			self.input.scroll = {}
+		}
+	} else if box.focused && self.edit_id == box.id {
+		offset = caret_view_offset(box, view, multiline)
+	}
+	start_caret := self.caret
 	if box.focused {
-		if box.hovered && self.input.mouse_pressed[.LEFT] do self.caret = len(value.buf)
-		self.caret = clamp(self.caret, 0, len(value.buf))
-		for self.caret > 0 && self.caret < len(value.buf) && !utf8.rune_start(value.buf[self.caret]) do self.caret -= 1
-		keys := &self.input.key_pressed
+		if external do self.anchor = self.caret
+		self.caret = rune_floor(value.buf[:], self.caret)
+		self.anchor = rune_floor(value.buf[:], self.anchor)
+		start_caret = self.caret
+		keys, down := &self.input.key_pressed, &self.input.key_down
+		if box.active && self.active_button == .LEFT && self.input.mouse_down[.LEFT] {
+			hit := len(value.buf)
+			if !masked do hit = caret_from_point(self, box, value.buf[:], self.mouse_pos - (box.text_pos - offset), multiline)
+			if box.result == .PRESSED && (external || !down[.SHIFT]) do self.anchor = hit
+			self.caret = hit
+		}
 		if keys[.ESCAPE] {
 			self.focus_id = 0
 			box.focused = false
 		} else {
-			if keys[.LEFT] do self.caret = previous_rune(value.buf[:], self.caret)
-			if keys[.RIGHT] do self.caret = next_rune(value.buf[:], self.caret)
-			if keys[.HOME] do self.caret = self.input.key_down[.CTRL] ? 0 : line_start(value.buf[:], self.caret)
-			if keys[.END] do self.caret = self.input.key_down[.CTRL] ? len(value.buf) : line_end(value.buf[:], self.caret)
-			if multiline && (keys[.UP] || keys[.DOWN]) {
-				start := line_start(value.buf[:], self.caret)
-				column := 0
-				for i := start; i < self.caret; i = next_rune(value.buf[:], i) do column += 1
-				target := keys[.UP] ? max(0, start - 1) : min(len(value.buf), line_end(value.buf[:], self.caret) + 1)
-				self.caret = line_start(value.buf[:], target)
-				for column > 0 && self.caret < len(value.buf) && value.buf[self.caret] != '\n' {
-					self.caret = next_rune(value.buf[:], self.caret)
-					column -= 1
+			text := value.buf[:]
+			selected := self.anchor != self.caret
+			first, last := min(self.anchor, self.caret), max(self.anchor, self.caret)
+			moved := false
+			if keys[.LEFT] {
+				self.caret = selected && !down[.SHIFT] ? first : previous_rune(text, self.caret)
+				moved = true
+			}
+			if keys[.RIGHT] {
+				self.caret = selected && !down[.SHIFT] ? last : next_rune(text, self.caret)
+				moved = true
+			}
+			if keys[.HOME] {
+				self.caret = down[.CTRL] ? 0 : line_start(text, self.caret)
+				moved = true
+			}
+			if keys[.END] {
+				self.caret = down[.CTRL] ? len(text) : line_end(text, self.caret)
+				moved = true
+			}
+			if multiline {
+				if keys[.UP] do self.caret = move_lines(text, self.caret, -1)
+				if keys[.DOWN] do self.caret = move_lines(text, self.caret, 1)
+				if keys[.PAGE_UP] || keys[.PAGE_DOWN] {
+					page := max(1, int(view.y / box_line_height(self, box)) - 1)
+					self.caret = move_lines(text, self.caret, keys[.PAGE_UP] ? -page : page)
 				}
+				moved = moved || keys[.UP] || keys[.DOWN] || keys[.PAGE_UP] || keys[.PAGE_DOWN]
+			}
+			if moved && !down[.SHIFT] do self.anchor = self.caret
+			if down[.CTRL] && keys[.A] do self.anchor, self.caret = 0, len(text)
+			selected = self.anchor != self.caret
+			first, last = min(self.anchor, self.caret), max(self.anchor, self.caret)
+			cut := down[.CTRL] && keys[.X] && !masked
+			if down[.CTRL] && (keys[.C] || cut) && selected && !masked {
+				strings.builder_reset(&self.clipboard)
+				strings.write_string(&self.clipboard, string(text[first:last]))
+				self.clipboard_pending = true
 			}
 			modified := false
-			if keys[.BACKSPACE] && self.caret > 0 {
-				start := previous_rune(value.buf[:], self.caret)
-				erase_text(value, start, self.caret)
-				self.caret = start
+			// Typing, pasting, Enter, Backspace, Delete and cut replace a selection.
+			if selected && (len(self.input.text.buf) > 0 || keys[.BACKSPACE] || keys[.DELETE] || cut || (multiline && keys[.RETURN])) {
+				erase_text(value, first, last)
+				self.caret = first
 				modified = true
-			}
-			if keys[.DELETE] && self.caret < len(value.buf) {
-				erase_text(value, self.caret, next_rune(value.buf[:], self.caret))
-				modified = true
+			} else {
+				if keys[.BACKSPACE] && self.caret > 0 {
+					start := previous_rune(value.buf[:], self.caret)
+					erase_text(value, start, self.caret)
+					self.caret = start
+					modified = true
+				}
+				if keys[.DELETE] && self.caret < len(value.buf) {
+					erase_text(value, self.caret, next_rune(value.buf[:], self.caret))
+					modified = true
+				}
 			}
 			inserted, newline := insert_input(self, value, multiline)
 			modified = modified || inserted
@@ -194,31 +352,70 @@ edit_box :: proc(self: ^UiContext, id: string, value: ^strings.Builder, rect: Re
 				insert_text(value, &self.caret, []u8{'\n'})
 				modified = true
 			}
-			if modified do box.result = .MODIFIED
+			if modified {
+				box.result = .MODIFIED
+				self.anchor = self.caret
+			}
 			if keys[.RETURN] && !multiline do box.result = .SUBMIT
 			cache_text(self, box, shown_text(value, masked))
 			position_text(box)
 		}
 	}
 	if box.focused {
+		if tabs do self.wants_tab = true
 		if box._caret != self.caret {
-			start := line_start(value.buf[:], self.caret)
-			line: int
-			for byte in value.buf[:start] do if byte == '\n' do line += 1
-			line_height := measure(self, "M", box.style).y
-			before := string(value.buf[start:self.caret])
-			if masked do before = strings.repeat("*", utf8.rune_count(before), context.temp_allocator)
-			box._caret_offset = {measure(self, before, box.style).x, f32(line) * line_height}
+			line := count_lines(value.buf[:line_start(value.buf[:], self.caret)])
+			box._caret_offset = text_offset(self, box, value.buf[:], self.caret, line, masked)
 			box._caret = self.caret
 		}
-		// Keep the caret visible; offsets are derived from cached text metrics.
-		inner_width := max(0, box.rect.width - 2 * box.style.padding - 1)
-		inner_height := max(0, box.rect.height - 2 * box.style.padding)
-		box.scroll_offset.x = max(0, box._caret_offset.x - inner_width)
-		if multiline do box.scroll_offset.y = max(0, box._caret_offset.y + box.style.font_size - inner_height)
-		box.text_pos -= box.scroll_offset
+	}
+	content = box.text_size + {1, 0}
+	if scroll != nil {
+		if box.focused && (external || self.caret != start_caret || box.result == .MODIFIED) {
+			// Scroll just enough to show the caret.
+			caret, line_height := box._caret_offset, box_line_height(self, box)
+			if caret.x < offset.x do offset.x = caret.x
+			if caret.x + 1 > offset.x + view.x do offset.x = caret.x + 1 - view.x
+			if caret.y < offset.y do offset.y = caret.y
+			if caret.y + line_height > offset.y + view.y do offset.y = caret.y + line_height - view.y
+		}
+		offset.x = clamp(offset.x, 0, max(0, content.x - view.x))
+		offset.y = clamp(offset.y, 0, max(0, content.y - view.y))
+		scroll^ = offset
+	} else if box.focused {
+		offset = caret_view_offset(box, view, multiline)
+	} else {
+		offset = {}
+	}
+	box.scroll_offset = offset
+	box.text_pos -= offset
+	if box.focused {
 		box.caret_rect = {box.text_pos.x + box._caret_offset.x, box.text_pos.y + box._caret_offset.y, 1, box.style.font_size}
+		if self.anchor != self.caret {
+			line_height := box_line_height(self, box)
+			if box._anchor != self.anchor {
+				// Lines between the two ends are counted from the caret's line,
+				// so a selection costs its own length, not the document's.
+				caret_line := int(box._caret_offset.y / line_height + 0.5)
+				between := count_lines(value.buf[min(self.anchor, self.caret):max(self.anchor, self.caret)])
+				line := self.anchor < self.caret ? caret_line - between : caret_line + between
+				box._anchor_offset = text_offset(self, box, value.buf[:], self.anchor, line, masked)
+				box._anchor = self.anchor
+			}
+			from, to := box._anchor_offset, box._caret_offset
+			if self.anchor > self.caret do from, to = to, from
+			origin := box.text_pos
+			if from.y == to.y {
+				box.selection_rects[0] = {origin.x + from.x, origin.y + from.y, to.x - from.x, line_height}
+			} else {
+				right := box.rect.x + box.rect.width - pad
+				box.selection_rects[0] = {origin.x + from.x, origin.y + from.y, max(0, right - origin.x - from.x), line_height}
+				box.selection_rects[1] = {origin.x, origin.y + from.y + line_height, max(0, right - origin.x), to.y - from.y - line_height}
+				box.selection_rects[2] = {origin.x, origin.y + to.y, to.x, line_height}
+			}
+		}
+		self.edit_id, self.edit_caret = box.id, self.caret
 	}
 	highlight(box)
-	return box.result
+	return box.result, content, view
 }

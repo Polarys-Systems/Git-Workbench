@@ -268,8 +268,7 @@ submodule_update_one :: proc(repo: ^git.Repository, name: string, task: ^Remote_
 	}
 	// Each submodule may live on another server: offer every key afresh.
 	payload^ = remote_payload(task)
-	options.fetch_opts.callbacks.credentials = remote_credentials
-	options.fetch_opts.callbacks.payload = payload
+	remote_callbacks_set(&options.fetch_opts.callbacks, payload)
 	// The default SAFE checkout refuses to overwrite local changes.
 	result := git.submodule_update(submodule, 1, &options)
 	if result != git.OK {

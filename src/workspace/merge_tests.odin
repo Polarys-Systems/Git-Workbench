@@ -9,18 +9,24 @@ import git "../git"
 
 @(test)
 merge_choices_preserve_surrounding_edits_and_line_endings :: proc(t: ^testing.T) {
-	cases := [?]struct { text, current, incoming, both: string }{
-		{"before\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> feature\nafter", "before\nours\nafter", "before\ntheirs\nafter", "before\nours\ntheirs\nafter"},
-		{"<<<<<<< HEAD\n=======\ntheirs\n>>>>>>> feature\n", "", "theirs\n", "theirs\n"},
-		{"<<<<<<< HEAD\nours\n||||||| base\nold\n=======\n>>>>>>> feature", "ours\n", "", "ours\n"},
-		{"prefix\r\n<<<<<<<<< ours\r\né\r\n||||||||| base\r\nold\r\n=========\r\nnew\r\n>>>>>>>>> theirs\r\ntail", "prefix\r\né\r\ntail", "prefix\r\nnew\r\ntail", "prefix\r\né\r\nnew\r\ntail"},
+	cases := [?]struct { text, current, incoming, both, incoming_first: string }{
+		{"before\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> feature\nafter", "before\nours\nafter", "before\ntheirs\nafter", "before\nours\ntheirs\nafter", "before\ntheirs\nours\nafter"},
+		{"<<<<<<< HEAD\n=======\ntheirs\n>>>>>>> feature\n", "", "theirs\n", "theirs\n", "theirs\n"},
+		{"<<<<<<< HEAD\nours\n||||||| base\nold\n=======\n>>>>>>> feature", "ours\n", "", "ours\n", "ours\n"},
+		{"prefix\r\n<<<<<<<<< ours\r\né\r\n||||||||| base\r\nold\r\n=========\r\nnew\r\n>>>>>>>>> theirs\r\ntail", "prefix\r\né\r\ntail", "prefix\r\nnew\r\ntail", "prefix\r\né\r\nnew\r\ntail", "prefix\r\nnew\r\né\r\ntail"},
 	}
 	for item in cases {
 		for choice in Merge_Choice {
 			file := Merge_File{result = strings.builder_make()}
 			strings.write_string(&file.result, item.text)
 			testing.expect(t, choose_merge_hunk(&file, choice) == "")
-			want := choice == .CURRENT ? item.current : (choice == .INCOMING ? item.incoming : item.both)
+			want: string
+			switch choice {
+			case .CURRENT:             want = item.current
+			case .INCOMING:            want = item.incoming
+			case .BOTH:                want = item.both
+			case .BOTH_INCOMING_FIRST: want = item.incoming_first
+			}
 			testing.expect(t, strings.to_string(file.result) == want)
 			strings.builder_destroy(&file.result)
 		}

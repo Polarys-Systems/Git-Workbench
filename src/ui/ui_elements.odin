@@ -22,6 +22,7 @@ allocate_box :: proc(self: ^UiContext) -> ^UiBox {
 		text = box.text, text_size = box.text_size,
 		_measured = box._measured, _font = box._font, _font_size = box._font_size,
 		_caret = box._caret, _caret_offset = box._caret_offset,
+		_anchor = box._anchor, _anchor_offset = box._anchor_offset, _line_height = box._line_height,
 		_animation = box._animation,
 		style = self.styles[self.n_styles], window_index = self.window_index,
 		zindex = i32(self.n_boxes),
@@ -41,7 +42,11 @@ measure :: proc(self: ^UiContext, text: string, style: UiStyle) -> [2]f32 {
 			size.x = max(size.x, x)
 			x = 0
 			size.y += style.font_size
-		} else {
+		} else if r == '\t' {
+			// Tab stops every four columns, matching the renderer.
+			tab := style.font_size * 2
+			x = (f32(int(x / tab)) + 1) * tab
+		} else if r != '\r' {
 			x += style.font_size * 0.5
 		}
 	}
@@ -62,6 +67,8 @@ cache_text :: proc(self: ^UiContext, box: ^UiBox, text: string) {
 		box._font_size = box.style.font_size
 		box._measured = true
 		box._caret = -1
+		box._anchor = -1
+		box._line_height = 0
 	}
 }
 

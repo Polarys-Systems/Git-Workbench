@@ -155,6 +155,8 @@ UiBox :: struct {
 	text_pos:      [2]f32,
 	text_size:     [2]f32,
 	caret_rect:    Rect2d,
+	// Up to three rectangles (first line, whole middle lines, last line).
+	selection_rects: [3]Rect2d,
 	line_start, line_end: [2]f32,
 	line_width: f32,
 	result:        UiResult,
@@ -167,6 +169,9 @@ UiBox :: struct {
 	_font_size:    f32,
 	_caret:        int,
 	_caret_offset: [2]f32,
+	_anchor:       int,
+	_anchor_offset: [2]f32,
+	_line_height:  f32,
 	_animation: UiStyleAnimation,
 }
 
@@ -222,6 +227,19 @@ UiContext :: struct {
 	active_id, focus_id, hover_id: UiId,
 	active_button:   Mouse_Button,
 	caret:           int,
+	// The other end of the selection in the focused editor; equal to caret
+	// when nothing is selected. edit_id/edit_caret detect caret changes made
+	// by the application, which clear the selection.
+	anchor:          int,
+	edit_id:         UiId,
+	edit_caret:      int,
+	// Set by the focused editor when Tab should insert a tab character rather
+	// than move focus. Read by the platform layer between frames.
+	wants_tab:       bool,
+	// Copy/cut output for the platform clipboard; clear clipboard_pending
+	// after taking the text.
+	clipboard:       strings.Builder,
+	clipboard_pending: bool,
 	hover_window:    i32,
 	had_elements, pointer_claimed: bool,
 	active_seen, focus_seen, in_frame: bool,
@@ -260,6 +278,7 @@ init :: proc(allocator := context.allocator, measure_text: UiMeasureText = nil) 
 	context_t.animations_enabled = true
 	context_t.window_index = -1
 	context_t.input.text = strings.builder_make(allocator)
+	context_t.clipboard = strings.builder_make(allocator)
 	return context_t
 }
 
@@ -267,6 +286,7 @@ destroy :: proc(self: ^UiContext) {
 	if self == nil do return
 	for &box in self.boxes[:self.used_boxes] do strings.builder_destroy(&box.text)
 	strings.builder_destroy(&self.input.text)
+	strings.builder_destroy(&self.clipboard)
 	free(self, self.allocator)
 }
 
@@ -304,6 +324,7 @@ begin :: proc(self: ^UiContext, window_w, window_h: f32) {
 	self.pointer_claimed = false
 	self.active_seen = false
 	self.focus_seen = false
+	self.wants_tab = false
 	self.n_styles = 0
 	self.styles[0] = default_style
 	self.n_layouts = -1

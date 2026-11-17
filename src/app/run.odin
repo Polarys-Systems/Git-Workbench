@@ -1,6 +1,7 @@
 package app
 
 import "core:math"
+import "core:strings"
 
 import font_core "../font"
 import "../gpu"
@@ -145,6 +146,10 @@ run :: proc() {
 		gitaris_ui(ui_ctx, &font, &title_font, &welcome_font, &icon_font, &state, window,
 			f32(extent.width), f32(extent.height), scale, &code_font)
 		update_system_cursor(&cursors, window, state.picker_pending ? .PROGRESS : ui.mouse_cursor(ui_ctx))
+		if ui_ctx.clipboard_pending {
+			_ = SDL.SetClipboardText(strings.clone_to_cstring(strings.to_string(ui_ctx.clipboard), context.temp_allocator))
+			ui_ctx.clipboard_pending = false
+		}
 		wants_text_input := false
 		for &box in ui.elements(ui_ctx) {
 			if box.focused && .EDITABLE in box.actions {

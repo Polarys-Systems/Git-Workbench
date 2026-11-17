@@ -22,7 +22,8 @@ Merge_File :: struct {
 	loaded, staged: bool,
 }
 
-Merge_Choice :: enum { CURRENT, INCOMING, BOTH }
+// BOTH keeps current before incoming; BOTH_INCOMING_FIRST reverses the order.
+Merge_Choice :: enum { CURRENT, INCOMING, BOTH, BOTH_INCOMING_FIRST }
 Merge_Hunk :: struct {
 	start, end: int,
 	current_start, current_end, incoming_start, incoming_end: int,
@@ -97,8 +98,20 @@ choose_merge_hunk :: proc(file: ^Merge_File, choice: Merge_Choice) -> string {
 	// A separate builder avoids invalidating the source slices while replacing.
 	next := strings.builder_make()
 	strings.write_string(&next, text[:hunk.start])
-	if choice != .INCOMING do strings.write_string(&next, text[hunk.current_start:hunk.current_end])
-	if choice != .CURRENT do strings.write_string(&next, text[hunk.incoming_start:hunk.incoming_end])
+	current := text[hunk.current_start:hunk.current_end]
+	incoming := text[hunk.incoming_start:hunk.incoming_end]
+	// Each side ends at a marker line, so it is empty or ends with a newline
+	// and the two sides can be joined in either order.
+	switch choice {
+	case .CURRENT:  strings.write_string(&next, current)
+	case .INCOMING: strings.write_string(&next, incoming)
+	case .BOTH:
+		strings.write_string(&next, current)
+		strings.write_string(&next, incoming)
+	case .BOTH_INCOMING_FIRST:
+		strings.write_string(&next, incoming)
+		strings.write_string(&next, current)
+	}
 	strings.write_string(&next, text[hunk.end:])
 	strings.builder_destroy(&file.result)
 	file.result = next

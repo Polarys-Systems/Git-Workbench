@@ -1,5 +1,6 @@
 package app
 
+import "core:fmt"
 import "core:strings"
 
 import font_core "../font"
@@ -131,14 +132,51 @@ gitaris_scroll_end :: proc(ctx: ^ui.UiContext, viewport: ui.Rect2d, scale: f32, 
 	ui.layout_end_scroll(ctx, horizontal)
 	ui.layout_pop(ctx)
 	window := &ctx.windows[ctx.window_index]
-	if window.content_size.y > viewport.height * scale {
-		thumb := max(22, viewport.height * viewport.height * scale / window.content_size.y)
-		progress := window.scroll_offset.y / (window.content_size.y - viewport.height * scale)
-		template_box(ctx, {viewport.x + viewport.width - 3, viewport.y + progress * (viewport.height - thumb), 3, thumb}, TEMPLATE_MUTED, 2, scale)
+	// The bars keep their old place: 3px inside the right edge, and just below
+	// the viewport. Their tracks are wider than the bars to be easy to grab.
+	gitaris_scrollbar(ctx, fmt.tprintf("scroll-y-%v-%v", viewport.x, viewport.y),
+		{viewport.x + viewport.width - 10, viewport.y, 10, viewport.height},
+		viewport.height * scale, window.content_size.y, &window.scroll_offset.y, true, scale)
+	if horizontal {
+		gitaris_scrollbar(ctx, fmt.tprintf("scroll-x-%v-%v", viewport.x, viewport.y),
+			{viewport.x, viewport.y + viewport.height, viewport.width, 6},
+			viewport.width * scale, window.content_size.x, &window.scroll_offset.x, false, scale)
 	}
-	if horizontal && window.content_size.x > viewport.width * scale {
-		thumb := max(22, viewport.width * viewport.width * scale / window.content_size.x)
-		progress := window.scroll_offset.x / (window.content_size.x - viewport.width * scale)
-		template_box(ctx, {viewport.x + progress * (viewport.width - thumb), viewport.y + viewport.height + 3, thumb, 3}, TEMPLATE_MUTED, 2, scale)
+}
+
+// Where the pointer held the thumb, so dragging does not make it jump.
+@(private = "file")
+gitaris_scroll_grab: f32
+
+// A scrollbar whose thumb can be dragged; pressing the track elsewhere centers
+// the thumb there and keeps dragging. The bar is drawn along the far (right or
+// bottom) edge of track, in logical units; view, content and offset are pixels.
+// keep_focus hands keyboard focus back to an editor after a press.
+gitaris_scrollbar :: proc(ctx: ^ui.UiContext, id: string, track: ui.Rect2d, view, content: f32,
+	offset: ^f32, vertical: bool, scale: f32, keep_focus: ui.UiId = 0) {
+	if content <= view || view <= 0 do return
+	length := vertical ? track.height : track.width
+	thumb := min(length, max(22, length * view / content))
+	travel := max(1, length - thumb)
+	range := content - view
+	// Hover and drag state from the previous frame decide the drawn thickness;
+	// the invisible hit box must be the topmost element over the track.
+	box_id := ui.make_id(id, ctx.window_index >= 0 ? ctx.windows[ctx.window_index].id : 0)
+	engaged := ctx.hover_id == box_id || ctx.active_id == box_id
+	size: f32 = engaged ? 6 : 3
+	start := clamp(offset^ / range, 0, 1) * travel
+	bar := vertical ? ui.Rect2d{track.x + track.width - size, track.y + start, size, thumb} :
+		ui.Rect2d{track.x + start, track.y + track.height - size, thumb, size}
+	template_box(ctx, bar, engaged ? TEMPLATE_TEXT : TEMPLATE_MUTED, size * 0.5, scale)
+	box := ui.new_box(ctx, "", {}, {.HOVERABLE, .CLICKABLE}, template_rect(track, scale), id)
+	box.draw_background = false
+	if box.result == .PRESSED {
+		if keep_focus != 0 do ctx.focus_id = keep_focus
+		position := (vertical ? ctx.mouse_pos.y : ctx.mouse_pos.x) / scale - (vertical ? track.y : track.x)
+		gitaris_scroll_grab = position >= start && position <= start + thumb ? position - start : thumb * 0.5
+	}
+	if box.active && ctx.input.mouse_down[.LEFT] {
+		position := (vertical ? ctx.mouse_pos.y : ctx.mouse_pos.x) / scale - (vertical ? track.y : track.x)
+		offset^ = clamp((position - gitaris_scroll_grab) / travel, 0, 1) * range
 	}
 }

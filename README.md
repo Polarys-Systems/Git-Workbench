@@ -54,7 +54,9 @@ Select a commit to open its changed files, then select a file to inspect its
 diff. Added lines have green backgrounds and deleted lines have red backgrounds,
 with old/new line numbers and unchanged context. The first file opens
 automatically. Scroll over the file list or diff independently; long lines can
-be scrolled horizontally with a trackpad or the diff's arrow buttons. **← History**
+be scrolled horizontally with a trackpad or the diff's arrow buttons. Every
+scrollbar can also be dragged with the mouse; pressing its track elsewhere jumps
+there. Bars thicken under the pointer to show they can be grabbed. **← History**
 returns to the commit list without losing its scroll position or search.
 Changes are compared with the first parent (including merge commits); initial
 commits are compared with an empty tree. Renames, binary files, empty files,
@@ -227,6 +229,15 @@ global Git settings are not changed, so the Git CLI still needs
 `git config --global --add safe.directory "//wsl.localhost/Ubuntu/home/you/project"`.
 A non-WSL repository owned by another Windows user shows that same command.
 
+Push, pull and submodule updates of a WSL repository use your Linux SSH setup
+too, as `git` inside WSL would: the keys in the Linux user's `~/.ssh` (the
+home the repository is in first, then every `/home/<user>`) are offered before
+the Preferences key, and a host trusted in the Linux `~/.ssh/known_hosts`
+(plain or hashed entries) is accepted as well as one in the Windows
+`known_hosts`. An `ssh-agent` running inside WSL cannot be reached from
+Windows: unlock an encrypted key with **SSH key passphrase**, or add it to the
+Windows OpenSSH agent or Pageant.
+
 Windows reads WSL files over a slower file share: history is quick, but the
 working tree view of a large repository can take a few seconds. Files with the
 executable bit may show as mode changes, because Windows cannot see Linux
@@ -282,13 +293,19 @@ outermost project. Opening another project leaves the submodule.
 Open **Merge editor** in the top menu to resolve conflicts in the current working
 tree after a Git merge, rebase, or cherry-pick. Select a conflicted file, inspect
 the next block's **Current (ours)** and **Incoming (theirs)** sides, then choose
-**Use current**, **Use incoming**, or **Use both** (current followed by incoming).
-Each choice replaces only that block, preserving the rest of the file. Standard,
+**Use current**, **Use incoming**, or keep both in the order you want:
+**Current + incoming** or **Incoming + current**.
+Each choice replaces only that block, preserving the rest of the file, and puts
+the caret in the result where the block was. Standard,
 diff3, and zdiff3 markers are supported. During a rebase, ours/theirs have Git's
 usual meanings: ours is the rebased-onto state and theirs is the replayed commit.
 
-The **Result** is editable using the arrow keys, Home/End, Ctrl+Home/Ctrl+End,
-Enter, Backspace/Delete, and Ctrl+V. **Reset result** restores the loaded file;
+The **Result** is a text editor: click to place the caret, drag or hold Shift
+with the arrow keys, Home/End or PageUp/PageDown to select, and use Ctrl+A,
+Ctrl+C, Ctrl+X and Ctrl+V. Typing replaces the selection, Tab inserts a tab
+(Shift+Tab and Escape leave the editor), and the mouse wheel or the scrollbars
+move the view. Tabs line up every four columns. The same mouse and selection
+controls work in every text field. **Reset result** restores the loaded file;
 drafts survive file switches and trips back to history. **Reload conflicts**
 reloads the index and discards drafts. **Save and stage** writes the result and
 stages only that file after all conflict markers are removed. External file or

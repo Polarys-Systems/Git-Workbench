@@ -2,6 +2,7 @@ package workspace
 
 import "core:c"
 import "core:fmt"
+import "core:mem"
 import "core:os"
 import "core:strings"
 import "core:sync"
@@ -65,6 +66,35 @@ wsl_translate :: proc(path: string, distributions: []string) -> string {
 	}
 	if len(distributions) == 0 do return ""
 	return fmt.tprintf(`%s%s\%s`, WSL_PREFIXES[0], distributions[0], inside)
+}
+
+// The .ssh folders of the Linux users of the distribution a WSL path belongs
+// to, as Windows paths: the home the path lies in first (/home/<user> or
+// /root), then every other /home/<user>. Only existing folders are returned;
+// none for a path outside WSL.
+wsl_ssh_dirs :: proc(path: string, allocator := context.temp_allocator) -> [dynamic]string {
+	dirs := make([dynamic]string, allocator)
+	normalized, prefix := wsl_split(path)
+	if prefix == 0 do return dirs
+	distribution := wsl_distribution(path)
+	if distribution == "" do return dirs
+	root := normalized[:prefix + len(distribution)]
+	add :: proc(dirs: ^[dynamic]string, dir: string, allocator: mem.Allocator) {
+		for existing in dirs do if strings.equal_fold(existing, dir) do return
+		if os.is_dir(dir) do append(dirs, strings.clone(dir, allocator))
+	}
+	// \home\<user>\... or \root\... inside the distribution.
+	parts := strings.split(strings.trim_left(normalized[len(root):], `\`), `\`, context.temp_allocator)
+	if len(parts) >= 2 && parts[0] == "home" && parts[1] != "" {
+		add(&dirs, fmt.tprintf(`%s\home\%s\.ssh`, root, parts[1]), allocator)
+	} else if len(parts) >= 1 && parts[0] == "root" {
+		add(&dirs, fmt.tprintf(`%s\root\.ssh`, root), allocator)
+	}
+	homes := fmt.tprintf(`%s\home`, root)
+	if entries, err := os.read_all_directory_by_path(homes, context.temp_allocator); err == nil {
+		for entry in entries do if entry.type == .Directory do add(&dirs, fmt.tprintf(`%s\%s\.ssh`, homes, entry.name), allocator)
+	}
+	return dirs
 }
 
 @(private)

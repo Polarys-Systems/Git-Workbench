@@ -50,6 +50,17 @@ draw_line :: proc(batch: ^Text_Batch, start, end: [2]f32, width: f32, color: [4]
 	return append_draw_quad(batch, lo, hi, uv, uv, color, color, {start.x, start.y, end.x, end.y})
 }
 
+// Tabs advance to the next multiple of four spaces from the start of the line.
+next_tab_stop :: proc(face: ^font.Face, size_64: u32, x: f32) -> f32 {
+	tab: f32
+	if glyph, found := font.glyph_index(face, ' '); found {
+		advance, _ := font.glyph_advance(face, glyph, size_64)
+		tab = advance * 4
+	}
+	if tab <= 0 do tab = f32(size_64) / 64 * 2
+	return (f32(int(x / tab + 0.001)) + 1) * tab
+}
+
 // Font handles in this application are borrowed Face pointers.
 ui_measure_text :: proc(id: ui.UiFont, text: string, size: f32) -> [2]f32 {
 	face := (^font.Face)(uintptr(id))
@@ -63,6 +74,10 @@ ui_measure_text :: proc(id: ui.UiFont, text: string, size: f32) -> [2]f32 {
 			extent.x = max(extent.x, x)
 			extent.y += height
 			x = 0
+			continue
+		}
+		if r == '\t' {
+			x = next_tab_stop(face, size_64, x)
 			continue
 		}
 		glyph, found := font.glyph_index(face, r)
@@ -104,6 +119,11 @@ draw_ui :: proc(batch: ^Text_Batch, ctx: ^ui.UiContext) -> (ok: bool) {
 				radius = max(0, radius - border)
 			}
 			if !draw_rounded_rect(batch, r, box.style.color_top, box.style.color_bottom, radius) do return false
+		}
+		for r in box.selection_rects {
+			color := box.style.focus_color
+			color.a *= 0.3
+			if !draw_rect(batch, r, color, color) do return false
 		}
 		if box.icon == .CHECK || box.icon == .CHECK_UNCHECKED {
 			r := box.icon_rect

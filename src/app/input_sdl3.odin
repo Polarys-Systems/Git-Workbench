@@ -24,7 +24,13 @@ input_process_sdl_event :: proc(ctx: ^ui.UiContext, event: ^SDL.Event, scale: f3
 		ui.input_text(ctx, string(event.text.text))
 	case .KEY_DOWN, .KEY_UP:
 		if event.key.down && event.key.scancode == .TAB {
-			input_focus_next(ctx, (event.key.mod & SDL.KMOD_SHIFT) != {})
+			// A document editor takes Tab as text; Shift+Tab still leaves it.
+			shift := (event.key.mod & SDL.KMOD_SHIFT) != {}
+			if ctx.wants_tab && !shift {
+				ui.input_text(ctx, "\t")
+			} else {
+				input_focus_next(ctx, shift)
+			}
 		}
 		if event.key.down && event.key.scancode == .V && (event.key.mod & SDL.KMOD_CTRL) != {} {
 			text := SDL.GetClipboardText()
@@ -36,6 +42,7 @@ input_process_sdl_event :: proc(ctx: ^ui.UiContext, event: ^SDL.Event, scale: f3
 		key, mapped := ui_key_from_scancode(event.key.scancode)
 		if mapped do ui.input_key(ctx, key, event.key.down, event.key.down)
 		ui.input_key(ctx, .CTRL, (event.key.mod & SDL.KMOD_CTRL) != {})
+		ui.input_key(ctx, .SHIFT, (event.key.mod & SDL.KMOD_SHIFT) != {})
 	case .WINDOW_MOUSE_ENTER:
 		x, y: f32
 		_ = SDL.GetMouseState(&x, &y)
@@ -83,6 +90,11 @@ ui_key_from_scancode :: proc(code: SDL.Scancode) -> (ui.Key, bool) {
 	case .HOME:      return .HOME, true
 	case .END:       return .END, true
 	case .SPACE:     return .SPACE, true
+	case .PAGEUP:    return .PAGE_UP, true
+	case .PAGEDOWN:  return .PAGE_DOWN, true
+	case .A:         return .A, true
+	case .C:         return .C, true
+	case .X:         return .X, true
 	}
 	return {}, false
 }

@@ -55,6 +55,7 @@ ECONFLICT       :: c.int(-13)
 ELOCKED         :: c.int(-14)
 EMODIFIED       :: c.int(-15)
 EAUTH           :: c.int(-16)
+ECERTIFICATE    :: c.int(-17)
 EAPPLIED        :: c.int(-18)
 EINVALID        :: c.int(-21)
 EUNCOMMITTED    :: c.int(-22)
@@ -144,6 +145,21 @@ Signature :: struct {
 
 Certificate :: struct {
 	cert_type: c.int,
+}
+
+CERT_HOSTKEY_LIBSSH2 :: c.int(2)
+CERT_SSH_RAW :: c.int(1 << 3)
+
+// git_cert_hostkey: what a Certificate is when cert_type is CERT_HOSTKEY_LIBSSH2.
+Cert_Hostkey :: struct {
+	parent: Certificate,
+	type: c.int, // CERT_SSH_* bits: which fields are set.
+	hash_md5: [16]u8,
+	hash_sha1: [20]u8,
+	hash_sha256: [32]u8,
+	raw_type: c.int,
+	hostkey: [^]u8, // The SSH wire-format public key, as in known_hosts.
+	hostkey_len: c.size_t,
 }
 
 Indexer_Progress :: struct {

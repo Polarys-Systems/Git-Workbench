@@ -288,7 +288,51 @@ Remote_Payload :: struct {
 	lease: git.Push_Lease,
 	use_lease: bool,
 	keep_tags, tag_rejected: bool, // Tag pushes: refuse to move remote tags.
+	// Repositories inside WSL: the Linux users' .ssh folders, whose keys and
+	// known_hosts are used as well (read with the worker's context).
+	wsl: bool,
+	wsl_ssh_dirs: []string,
+	ctx: runtime.Context,
+	// Why a connection failed before authenticating: the server's host key
+	// is not trusted (the host is named), or the remote asked for HTTPS
+	// credentials.
+	unknown_host_buf: [256]u8,
+	unknown_host_len: int,
+	host_revoked, https_asked: bool,
+}
 
+// Sets the credential and host key callbacks of one operation.
+@(private)
+remote_callbacks_set :: proc(callbacks: ^git.Remote_Callbacks, payload: ^Remote_Payload) {
+	callbacks.credentials = remote_credentials
+	callbacks.certificate_check = remote_certificate_check
+	callbacks.payload = payload
+}
+
+// libgit2 has already checked the Windows known_hosts (valid). A WSL
+// repository's hosts may be trusted only in the WSL known_hosts, which git
+// in that distribution uses: accept a key listed there. Otherwise libgit2's
+// verdict stands, and a rejected host is noted for the error message.
+@(private)
+remote_certificate_check :: proc "c" (cert: ^git.Certificate, valid: c.int, host: cstring, payload: rawptr) -> c.int {
+	auth := (^Remote_Payload)(payload)
+	context = auth.ctx
+	if cert == nil || cert.cert_type != git.CERT_HOSTKEY_LIBSSH2 do return git.PASSTHROUGH
+	hostkey := (^git.Cert_Hostkey)(cert)
+	name := host != nil ? string(host) : ""
+	if auth.wsl && hostkey.type & git.CERT_SSH_RAW != 0 && hostkey.hostkey != nil {
+		switch known_hosts_check_files(auth.wsl_ssh_dirs, name, hostkey.hostkey[:hostkey.hostkey_len]) {
+		case .MATCH:
+			if valid == 0 do return git.OK
+		case .REVOKED:
+			auth.host_revoked = true
+			auth.unknown_host_len = copy(auth.unknown_host_buf[:], name)
+			return git.ECERTIFICATE
+		case .UNKNOWN:
+		}
+	}
+	if valid == 0 do auth.unknown_host_len = copy(auth.unknown_host_buf[:], name)
+	return git.PASSTHROUGH
 }
 
 // Unencrypted key files first, then ssh-agent, then encrypted key files with
@@ -327,6 +371,7 @@ remote_credentials :: proc "c" (out: ^^git.Credential, url, username_from_url: c
 		}
 		return git.EAUTH
 	}
+	if allowed_types & git.CREDENTIAL_USERPASS_PLAINTEXT != 0 do auth.https_asked = true
 	if allowed_types & git.CREDENTIAL_USERNAME != 0 && !auth.username_tried {
 		auth.username_tried = true
 		return git.credential_username_new(out, username)
@@ -403,9 +448,18 @@ ssh_key_encrypted :: proc(path: string) -> bool {
 
 @(private)
 remote_payload :: proc(task: ^Remote_Task) -> Remote_Payload {
-	payload := Remote_Payload{last_key = -1, passphrase = task.passphrase}
-	for key in ssh_key_candidates(task.ssh_key_path) {
+	payload := Remote_Payload{last_key = -1, passphrase = task.passphrase, ctx = context}
+	candidates := make([dynamic]string, context.temp_allocator)
+	// Inside WSL, git uses the Linux user's keys: offer those first, like it.
+	if is_wsl_path(task.project_path) {
+		payload.wsl = true
+		payload.wsl_ssh_dirs = wsl_ssh_dirs(task.project_path)[:]
+		for dir in payload.wsl_ssh_dirs do append(&candidates, ..ssh_key_candidates(dir)[:])
+	}
+	append(&candidates, ..ssh_key_candidates(task.ssh_key_path)[:])
+	outer: for key in candidates {
 		if payload.key_count == len(payload.keys) do break
+		for i in 0..<payload.key_count do if strings.equal_fold(string(payload.keys[i]), key) do continue outer
 		payload.keys[payload.key_count] = cstring_temp(key)
 		payload.encrypted[payload.key_count] = ssh_key_encrypted(key)
 		payload.key_count += 1
@@ -473,6 +527,16 @@ remote_key_name :: proc(payload: ^Remote_Payload, encrypted_only := false) -> st
 
 @(private)
 remote_auth_hint :: proc(code: c.int, payload: ^Remote_Payload) -> string {
+	if payload.unknown_host_len > 0 {
+		host := string(payload.unknown_host_buf[:payload.unknown_host_len])
+		if payload.host_revoked do return fmt.tprintf(" The SSH host key of %s is marked @revoked in known_hosts; nothing was sent.", host)
+		where_ := payload.wsl ? "the Windows or WSL known_hosts" : "your known_hosts"
+		return fmt.tprintf(" The SSH host key of %s is not in %s. Connect once with ssh -T git@%s to check and trust it, then try again.", host, where_, host)
+	}
+	// An HTTPS remote asks for a user name and password, never an SSH key.
+	if payload.https_asked && payload.next_key == 0 && !payload.agent_tried {
+		return " This remote uses HTTPS, which is not supported: switch it to SSH with git remote set-url origin git@<host>:<owner>/<repo>.git."
+	}
 	if remote_passphrase_rejected(payload) {
 		return fmt.tprintf(" The passphrase did not unlock %s. Check it and try again.", remote_key_name(payload))
 	}
@@ -481,6 +545,10 @@ remote_auth_hint :: proc(code: c.int, payload: ^Remote_Payload) -> string {
 	}
 	// Every SSH credential was offered (or libgit2 reported an auth failure).
 	if code == git.EAUTH || payload.agent_tried {
+		if payload.wsl {
+			// libssh2 reaches Pageant or the Windows OpenSSH agent only.
+			return " No key was accepted (keys from Preferences and your WSL ~/.ssh were tried). An ssh-agent running inside WSL cannot be reached from Windows: add the key to the Windows ssh-agent or enter its passphrase under SSH key passphrase."
+		}
 		return " Check the SSH key location in Preferences (or ssh-agent); HTTPS remotes are not supported."
 	}
 	return ""
@@ -490,8 +558,7 @@ remote_auth_hint :: proc(code: c.int, payload: ^Remote_Payload) -> string {
 remote_pull :: proc(repo: ^git.Repository, identity: ^git.Signature, rebase: bool, payload: ^Remote_Payload) -> (string, bool) {
 	options: git.Fetch_Options
 	if git.fetch_options_init(&options, git.FETCH_OPTIONS_VERSION) != git.OK do return git_error("Could not prepare the pull"), true
-	options.callbacks.credentials = remote_credentials
-	options.callbacks.payload = payload
+	remote_callbacks_set(&options.callbacks, payload)
 	status, result := git.pull(repo, &options, rebase, identity)
 	switch result {
 	case git.OK:
@@ -548,9 +615,8 @@ remote_push :: proc(repo: ^git.Repository, force: bool, payload: ^Remote_Payload
 	}
 	options: git.Push_Options
 	if git.push_options_init(&options, git.PUSH_OPTIONS_VERSION) != git.OK do return git_error("Could not prepare the push"), true
-	options.callbacks.credentials = remote_credentials
+	remote_callbacks_set(&options.callbacks, payload)
 	options.callbacks.push_negotiation = remote_negotiation
-	options.callbacks.payload = payload
 	specs := [1]cstring{cstring_temp(fmt.tprintf("%s%s:%s", force ? "+" : "", local, destination))}
 	result := git.push(repo, specs[:], cstring_temp(remote_name), &options)
 	if result != git.OK {
@@ -589,9 +655,8 @@ remote_push_tags :: proc(repo: ^git.Repository, tag, remote_name: string, payloa
 	for name in names do append(&specs, cstring_temp(fmt.tprintf("refs/tags/%s:refs/tags/%s", name, name)))
 	options: git.Push_Options
 	if git.push_options_init(&options, git.PUSH_OPTIONS_VERSION) != git.OK do return git_error("Could not prepare the push"), true
-	options.callbacks.credentials = remote_credentials
+	remote_callbacks_set(&options.callbacks, payload)
 	options.callbacks.push_negotiation = remote_negotiation
-	options.callbacks.payload = payload
 	payload.keep_tags = true
 	result := git.push(repo, specs[:], cstring_temp(remote_name), &options)
 	what := tag != "" ? fmt.tprintf("tag %s", tag) : fmt.tprintf("%d tag%s", len(names), len(names) == 1 ? "" : "s")

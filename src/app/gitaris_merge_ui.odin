@@ -101,13 +101,23 @@ gitaris_merge_ui :: proc(ctx: ^ui.UiContext, face, title, mono: ^font_core.Face,
 		text := strings.to_string(file.result)
 		hunk, found, marker_error := workspace.next_merge_hunk(text)
 		if found {
-			labels := [?]string{"Use current", "Use incoming", "Use both"}
-			for label, i in labels {
-				if gitaris_button(ctx, face, label, {x + f32(i) * 120, content + 30, 114, 30}, scale) {
-					gitaris_error(state, workspace.choose_merge_hunk(file, workspace.Merge_Choice(i)))
+			// The two combinations keep both sides and differ only in order.
+			choices := [workspace.Merge_Choice]struct { label: string, width: f32 }{
+				.CURRENT = {"Use current", 108},
+				.INCOMING = {"Use incoming", 116},
+				.BOTH = {"Current + incoming", 152},
+				.BOTH_INCOMING_FIRST = {"Incoming + current", 152},
+			}
+			bx := x
+			for choice, kind in choices {
+				if gitaris_button(ctx, face, choice.label, {bx, content + 30, choice.width, 30}, scale) {
+					gitaris_error(state, workspace.choose_merge_hunk(file, kind))
+					gitaris_reset_windows(ctx, "merge-current", "merge-incoming")
+					// Continue in the result where the block was replaced.
+					ctx.focus_id = gitaris_merge_result_id(file.path)
 					ctx.caret = hunk.start
-					gitaris_reset_windows(ctx, "merge-current", "merge-incoming", "merge-result")
 				}
+				bx += choice.width + 6
 			}
 		} else {
 			message := marker_error != "" ? "Repair the markers in the result below." : "No conflict blocks left. Review, then save."
@@ -133,17 +143,32 @@ gitaris_merge_ui :: proc(ctx: ^ui.UiContext, face, title, mono: ^font_core.Face,
 
 	y := preview_y + preview_h + 10
 	ui.begin_window(ctx, template_rect({x, y, cw, bottom - y}, scale), "merge-result")
-	template_label(ctx, face, "RESULT · editable · arrows / Home / End to navigate · Ctrl+V to paste", {x, y, cw - 136, 28}, 10, TEMPLATE_MUTED, scale)
+	template_label(ctx, face, "RESULT · click to edit · drag or Shift+arrows to select · Ctrl+A/C/X/V · Tab indents",
+		{x, y, cw - 136, 28}, 10, TEMPLATE_MUTED, scale)
+	editor_id := gitaris_merge_result_id(file.path)
 	if gitaris_button(ctx, face, "Reset result", {x + cw - 120, y, 120, 28}, scale) {
 		gitaris_set_field(&file.result, file.original)
+		ctx.focus_id = editor_id
 		ctx.caret = 0
 		gitaris_error(state, "")
 	}
+	// The window's scroll storage holds the editor's view, so switching files
+	// (which resets this window) starts at the top.
+	window := &ctx.windows[ctx.window_index]
+	area := ui.Rect2d{x, y + 34, cw, bottom - y - 34}
 	style := gitaris_field_style(mono, scale)
 	style.font_size = 13 * scale
 	ui.style_push(ctx, style)
-	if ui.textbox(ctx, file.path, &file.result, template_rect({x, y + 34, cw, bottom - y - 34}, scale)) == .MODIFIED {
-		gitaris_error(state, "")
-	}
+	result, extent, view := ui.text_editor(ctx, file.path, &file.result, template_rect(area, scale), &window.scroll_offset)
 	ui.style_pop(ctx)
+	if result == .MODIFIED do gitaris_error(state, "")
+	gitaris_scrollbar(ctx, "result-y", {area.x + area.width - 12, area.y + 6, 10, area.height - 12},
+		view.y, extent.y, &window.scroll_offset.y, true, scale, editor_id)
+	gitaris_scrollbar(ctx, "result-x", {area.x + 6, area.y + area.height - 12, area.width - 24, 10},
+		view.x, extent.x, &window.scroll_offset.x, false, scale, editor_id)
+}
+
+// The result editor's element ID (its window is "merge-result"), for focusing it.
+gitaris_merge_result_id :: proc(path: string) -> ui.UiId {
+	return ui.make_id(path, ui.make_id("merge-result"))
 }

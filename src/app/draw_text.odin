@@ -209,6 +209,17 @@ draw_text :: proc(batch: ^Text_Batch, face: ^font.Face, text: string, pos: [2]f3
 			pen[1] += metrics.line_height
 			continue
 		}
+		// Long documents: lines wholly outside the clip produce no quads, so
+		// skip their glyph lookups, and stop below the clip.
+		if batch.clip_enabled {
+			top := pen[1] - metrics.ascent
+			if top >= batch.clip_max[1] do break
+			if top + metrics.line_height <= batch.clip_min[1] do continue
+		}
+		if r == '\t' {
+			pen[0] = pos[0] + next_tab_stop(face, size_64, pen[0] - pos[0])
+			continue
+		}
 
 		glyph_idx, found := font.glyph_index(face, r)
 		if !found {
