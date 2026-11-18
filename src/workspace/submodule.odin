@@ -1,5 +1,7 @@
 package workspace
 
+// Submodule listing and status, including the background scan for changes inside them.
+
 import "base:runtime"
 import "core:c"
 import "core:fmt"

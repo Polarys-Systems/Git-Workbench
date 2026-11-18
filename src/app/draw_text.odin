@@ -1,5 +1,8 @@
 package app
 
+// GPU text and shape batch: glyph atlas cache, vertex buffer and the pipeline
+// that draws everything the UI produces in a single pass.
+
 import "base:runtime"
 import "core:math"
 import "core:mem"

@@ -1,5 +1,7 @@
 package gpu
 
+// Device shutdown and destruction of pipelines and samplers.
+
 import "core:dynlib"
 import vk "vendor:vulkan"
 

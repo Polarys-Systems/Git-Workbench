@@ -1,5 +1,7 @@
 package xlsx
 
+// Minimal ZIP reader for workbook files (stored and deflated entries).
+
 import "core:bytes"
 import "core:compress/zlib"
 import "core:hash"

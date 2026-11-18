@@ -1,5 +1,8 @@
 package gpu
 
+// Internal state behind the public handles: memory blocks, descriptor pools,
+// commands, swapchain images and upload batches.
+
 import "base:runtime"
 import "core:dynlib"
 import SDL "vendor:sdl3"

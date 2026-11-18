@@ -1,5 +1,7 @@
 package workspace
 
+// Loading and saving the user's settings file (gitaris.json).
+
 import "core:encoding/json"
 import "core:fmt"
 import "core:os"

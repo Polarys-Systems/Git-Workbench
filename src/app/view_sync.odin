@@ -1,12 +1,14 @@
 package app
 
+// Sync panel: fetch, pull, push (and force push), pull strategy and the SSH passphrase.
+
 import "core:fmt"
 
 import font_core "../font"
 import "../ui"
 import "../workspace"
 
-gitaris_remote_progress :: proc(state: ^Gitaris) -> string {
+workbench_remote_progress :: proc(state: ^Workbench) -> string {
 	branch := state.model.sync.branch
 	switch state.remote.action {
 	case .PULL: return state.remote.rebase ? fmt.tprintf("Pulling %s with rebase…", branch) : fmt.tprintf("Pulling %s…", branch)
@@ -22,7 +24,7 @@ gitaris_remote_progress :: proc(state: ^Gitaris) -> string {
 	return ""
 }
 
-gitaris_sync_summary :: proc(status: workspace.Sync_Status) -> (heading, detail: string) {
+workbench_sync_summary :: proc(status: workspace.Sync_Status) -> (heading, detail: string) {
 	if status.branch == "" do return "Detached HEAD", "Check out a local branch to push or pull."
 	if status.unborn do return status.branch, "No commits yet. Commit first, then push to publish the branch."
 	if status.upstream == "" {
@@ -41,107 +43,107 @@ gitaris_sync_summary :: proc(status: workspace.Sync_Status) -> (heading, detail:
 }
 
 // A small section heading inside dialog panels.
-gitaris_section :: proc(ctx: ^ui.UiContext, face: ^font_core.Face, text: string, x, y, w, scale: f32) {
-	template_label(ctx, face, text, {x, y, w, 16}, 10, TEMPLATE_MUTED, scale)
+workbench_section :: proc(ctx: ^ui.UiContext, face: ^font_core.Face, text: string, x, y, w, scale: f32) {
+	theme_label(ctx, face, text, {x, y, w, 16}, 10, THEME_MUTED, scale)
 }
 
-gitaris_sync_ui :: proc(ctx: ^ui.UiContext, face, title: ^font_core.Face, state: ^Gitaris, w, h, scale: f32) {
-	ui.begin_window(ctx, template_rect({0, GITARIS_MENU_HEIGHT, w, h - GITARIS_MENU_HEIGHT}, scale), "workspace-sync")
+workbench_sync_ui :: proc(ctx: ^ui.UiContext, face, title: ^font_core.Face, state: ^Workbench, w, h, scale: f32) {
+	ui.begin_window(ctx, theme_rect({0, MENU_HEIGHT, w, h - MENU_HEIGHT}, scale), "workspace-sync")
 	model := &state.model
 	status := model.sync
 	busy := workspace.remote_busy(&state.remote)
-	pw := min(w - 2 * GITARIS_GAP, 600)
-	ph: f32 = 510
-	px := (w - pw) * 0.5
-	py := GITARIS_MENU_HEIGHT + max(GITARIS_GAP, (h - GITARIS_MENU_HEIGHT - ph) * 0.4) + (1 - state.view_enter.value) * 10
-	template_panel(ctx, {px, py, pw, ph}, TEMPLATE_CARD, 18, scale)
-	x, fw := px + 24, pw - 48
-	template_label(ctx, title, "Sync", {x, py + 20, 80, 30}, 20, TEMPLATE_TEXT, scale)
+	panel_w := min(w - 2 * PANEL_GAP, 600)
+	panel_h: f32 = 510
+	panel_x := (w - panel_w) * 0.5
+	panel_y := MENU_HEIGHT + max(PANEL_GAP, (h - MENU_HEIGHT - panel_h) * 0.4) + (1 - state.view_enter.value) * 10
+	theme_panel(ctx, {panel_x, panel_y, panel_w, panel_h}, THEME_CARD, 18, scale)
+	x, inner_w := panel_x + 24, panel_w - 48
+	theme_label(ctx, title, "Sync", {x, panel_y + 20, 80, 30}, 20, THEME_TEXT, scale)
 	// Inside a submodule, pushes and pulls go to the submodule's own remote.
-	repo := gitaris_repo_label(state)
+	repo := workbench_repo_label(state)
 	if len(state.parents) > 0 {
-		tag := template_tag(ctx, face, "SUBMODULE", x + 66, py + 26, TEMPLATE_HIGHLIGHT, TEMPLATE_DARK, scale)
-		template_label(ctx, face, repo, {x + 74 + tag, py + 20, fw - 80 - tag, 30}, 13, TEMPLATE_TEXT, scale)
+		tag := theme_tag(ctx, face, "SUBMODULE", x + 66, panel_y + 26, THEME_HIGHLIGHT, THEME_DARK, scale)
+		theme_label(ctx, face, repo, {x + 74 + tag, panel_y + 20, inner_w - 80 - tag, 30}, 13, THEME_TEXT, scale)
 	} else {
-		template_label(ctx, face, repo, {x + 66, py + 20, fw - 66, 30}, 13, TEMPLATE_MUTED, scale)
+		theme_label(ctx, face, repo, {x + 66, panel_y + 20, inner_w - 66, 30}, 13, THEME_MUTED, scale)
 	}
 
-	heading, detail := gitaris_sync_summary(status)
-	gitaris_section(ctx, face, "BRANCH", x, py + 62, fw, scale)
-	template_label(ctx, title, heading, {x, py + 80, fw, 24}, 16, TEMPLATE_TEXT, scale)
-	template_label(ctx, face, detail, {x, py + 104, fw, 18}, 12, TEMPLATE_MUTED, scale)
-	template_box(ctx, {x, py + 132, fw, 1}, TEMPLATE_LINE, 0, scale)
+	heading, detail := workbench_sync_summary(status)
+	workbench_section(ctx, face, "BRANCH", x, panel_y + 62, inner_w, scale)
+	theme_label(ctx, title, heading, {x, panel_y + 80, inner_w, 24}, 16, THEME_TEXT, scale)
+	theme_label(ctx, face, detail, {x, panel_y + 104, inner_w, 18}, 12, THEME_MUTED, scale)
+	theme_box(ctx, {x, panel_y + 132, inner_w, 1}, THEME_LINE, 0, scale)
 
 	// pull.rebase lives in the repository's Git config, shared with the Git CLI.
-	gitaris_section(ctx, face, "PULL STRATEGY", x, py + 144, fw, scale)
-	half := (fw - 6) * 0.5
-	if gitaris_button(ctx, face, "Fast-forward only", {x, py + 164, half, 32}, scale, !status.rebase, id = "pull-ff") &&
+	workbench_section(ctx, face, "PULL STRATEGY", x, panel_y + 144, inner_w, scale)
+	half := (inner_w - 6) * 0.5
+	if workbench_button(ctx, face, "Fast-forward only", {x, panel_y + 164, half, 32}, scale, !status.rebase, id = "pull-ff") &&
 		status.rebase && !busy {
-		gitaris_error(state, workspace.set_pull_rebase(model, false))
+		workbench_error(state, workspace.set_pull_rebase(model, false))
 	}
-	if gitaris_button(ctx, face, "Rebase local commits", {x + half + 6, py + 164, half, 32}, scale, status.rebase, id = "pull-rebase") &&
+	if workbench_button(ctx, face, "Rebase local commits", {x + half + 6, panel_y + 164, half, 32}, scale, status.rebase, id = "pull-rebase") &&
 		!status.rebase && !busy {
-		gitaris_error(state, workspace.set_pull_rebase(model, true))
+		workbench_error(state, workspace.set_pull_rebase(model, true))
 	}
 	explanation := "Pull only fast-forwards. If your branch has diverged, pull stops and nothing changes."
 	if status.rebase {
 		explanation = "Pull replays your local commits on top of the upstream (git pull --rebase). If one conflicts, nothing changes."
 	}
-	template_label(ctx, face, explanation, {x, py + 202, fw, 18}, 11, TEMPLATE_TEXT, scale)
-	template_label(ctx, face, "Saved as pull.rebase in this repository's .git/config, so Git pulls the same way.", {x, py + 220, fw, 16}, 10, TEMPLATE_MUTED, scale)
-	template_box(ctx, {x, py + 246, fw, 1}, TEMPLATE_LINE, 0, scale)
+	theme_label(ctx, face, explanation, {x, panel_y + 202, inner_w, 18}, 11, THEME_TEXT, scale)
+	theme_label(ctx, face, "Saved as pull.rebase in this repository's .git/config, so Git pulls the same way.", {x, panel_y + 220, inner_w, 16}, 10, THEME_MUTED, scale)
+	theme_box(ctx, {x, panel_y + 246, inner_w, 1}, THEME_LINE, 0, scale)
 
-	gitaris_section(ctx, face, "REMOTE", x, py + 258, fw, scale)
-	if gitaris_button(ctx, face, "Pull", {x, py + 278, 96, 34}, scale, id = "sync-pull") && !busy {
-		gitaris_remote_start(state, .PULL)
+	workbench_section(ctx, face, "REMOTE", x, panel_y + 258, inner_w, scale)
+	if workbench_button(ctx, face, "Pull", {x, panel_y + 278, 96, 34}, scale, id = "sync-pull") && !busy {
+		workbench_remote_start(state, .PULL)
 	}
-	if gitaris_button(ctx, face, "Push", {x + 102, py + 278, 96, 34}, scale, true, id = "sync-push") && !busy {
-		gitaris_remote_start(state, .PUSH)
+	if workbench_button(ctx, face, "Push", {x + 102, panel_y + 278, 96, 34}, scale, true, id = "sync-push") && !busy {
+		workbench_remote_start(state, .PUSH)
 	}
 	force_label := state.force_armed ? "Confirm force push" : "Force push (lease)"
-	if gitaris_button(ctx, face, force_label, {x + 204, py + 278, 170, 34}, scale, id = "sync-force") && !busy {
+	if workbench_button(ctx, face, force_label, {x + 204, panel_y + 278, 170, 34}, scale, id = "sync-force") && !busy {
 		if state.force_armed {
-			gitaris_remote_start(state, .FORCE_PUSH_WITH_LEASE)
+			workbench_remote_start(state, .FORCE_PUSH_WITH_LEASE)
 		} else {
 			// The confirmation warning replaces the previous result.
 			state.force_armed = true
-			gitaris_error(state, "")
-			gitaris_notice(state, "")
+			workbench_error(state, "")
+			workbench_notice(state, "")
 		}
 	}
 	// Tags are never pushed with the branch; this sends every local tag.
 	if !state.force_armed && len(model.tags) > 0 &&
-		gitaris_button(ctx, face, fmt.tprintf("Push tags (%d)", len(model.tags)), {x + fw - 130, py + 278, 130, 34}, scale, id = "sync-tags") && !busy {
-		gitaris_tag_push(state, "")
+		workbench_button(ctx, face, fmt.tprintf("Push tags (%d)", len(model.tags)), {x + inner_w - 130, panel_y + 278, 130, 34}, scale, id = "sync-tags") && !busy {
+		workbench_tag_push(state, "")
 	}
 	if state.force_armed {
-		if gitaris_button(ctx, face, "Cancel", {x + 380, py + 278, 84, 34}, scale, id = "sync-force-cancel") {
+		if workbench_button(ctx, face, "Cancel", {x + 380, panel_y + 278, 84, 34}, scale, id = "sync-force-cancel") {
 			state.force_armed = false
 		}
 		target := status.upstream != "" ? status.upstream : fmt.tprintf("%s/%s", status.remote, status.branch)
 		warning := fmt.tprintf("Replaces %s with your %s. Refused if %s has commits you have not fetched (--force-with-lease).", target, status.branch, target)
-		gitaris_message(ctx, face, warning, {x, py + 318, fw, 34}, scale)
+		workbench_message(ctx, face, warning, {x, panel_y + 318, inner_w, 34}, scale)
 	}
 
 	if busy {
-		template_label(ctx, face, gitaris_remote_progress(state), {x, py + 356, fw, 18}, 12, TEMPLATE_ACCENT, scale)
+		theme_label(ctx, face, workbench_remote_progress(state), {x, panel_y + 356, inner_w, 18}, 12, THEME_ACCENT, scale)
 	} else if state.error != "" {
-		gitaris_message(ctx, face, state.error, {x, py + 356, fw, 36}, scale)
+		workbench_message(ctx, face, state.error, {x, panel_y + 356, inner_w, 36}, scale)
 	} else if state.notice != "" {
-		gitaris_message(ctx, face, state.notice, {x, py + 356, fw, 36}, scale, GITARIS_ADD_TEXT)
+		workbench_message(ctx, face, state.notice, {x, panel_y + 356, inner_w, 36}, scale, THEME_ADDITION_TEXT)
 	}
 
 	// Only offered to encrypted key files, after unencrypted keys and ssh-agent.
-	gitaris_section(ctx, face, "SSH KEY PASSPHRASE", x, py + 398, fw, scale)
+	workbench_section(ctx, face, "SSH KEY PASSPHRASE", x, panel_y + 398, inner_w, scale)
 	has_passphrase := len(state.passphrase.buf) > 0
-	field_w := has_passphrase ? fw - 90 : fw
-	_ = gitaris_field(ctx, face, "ssh-passphrase", "", "Only needed if your key has one", &state.passphrase,
-		{x, py + 418, field_w, 36}, scale, secret = true)
-	if has_passphrase && gitaris_button(ctx, face, "Forget", {x + fw - 84, py + 418, 84, 36}, scale, id = "ssh-passphrase-forget") {
-		gitaris_forget_passphrase(state)
+	field_w := has_passphrase ? inner_w - 90 : inner_w
+	_ = workbench_field(ctx, face, "ssh-passphrase", "", "Only needed if your key has one", &state.passphrase,
+		{x, panel_y + 418, field_w, 36}, scale, secret = true)
+	if has_passphrase && workbench_button(ctx, face, "Forget", {x + inner_w - 84, panel_y + 418, 84, 36}, scale, id = "ssh-passphrase-forget") {
+		workbench_forget_passphrase(state)
 	}
-	template_label(ctx, face, "SSH: keys from Preferences, ssh-agent, then encrypted keys. The passphrase is never saved.", {x, py + ph - 34, fw - 110, 28}, 10, TEMPLATE_MUTED, scale)
-	if gitaris_button(ctx, face, "Done", {x + fw - 96, py + ph - 38, 96, 30}, scale) || ctx.input.key_pressed[.ESCAPE] {
-		gitaris_open_menu(state, .NONE)
+	theme_label(ctx, face, "SSH: keys from Preferences, ssh-agent, then encrypted keys. The passphrase is never saved.", {x, panel_y + panel_h - 34, inner_w - 110, 28}, 10, THEME_MUTED, scale)
+	if workbench_button(ctx, face, "Done", {x + inner_w - 96, panel_y + panel_h - 38, 96, 30}, scale) || ctx.input.key_pressed[.ESCAPE] {
+		workbench_open_menu(state, .NONE)
 	}
 }

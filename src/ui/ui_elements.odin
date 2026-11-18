@@ -1,5 +1,7 @@
 package ui
 
+// Box allocation, IDs, text measuring and layout placement used by widgets.
+
 import "core:strings"
 
 AUTO_RECT :: Rect2d{-1, -1, -1, -1}

@@ -1,5 +1,7 @@
 package gpu
 
+// Vulkan instance and device creation, validation messages and device queries.
+
 import "base:runtime"
 import "core:dynlib"
 import "core:fmt"

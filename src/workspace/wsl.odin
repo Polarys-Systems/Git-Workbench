@@ -1,5 +1,7 @@
 package workspace
 
+// Support for repositories inside WSL: path translation and ownership checks.
+
 import "core:c"
 import "core:fmt"
 import "core:mem"

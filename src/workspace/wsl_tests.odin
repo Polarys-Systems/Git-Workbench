@@ -22,12 +22,12 @@ wsl_paths_are_recognized_and_named :: proc(t: ^testing.T) {
 linux_paths_translate_to_windows_paths :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
 	none: []string
-	missing := []string{"NoSuchDistribution-gitaris"}
+	missing := []string{"NoSuchDistribution-workbench"}
 	// /mnt/<drive> is the Windows drive itself, with or without WSL installed.
 	testing.expect(t, wsl_translate("/mnt/c/devel/project", none) == `C:\devel\project`)
 	testing.expect(t, wsl_translate("/mnt/D/", none) == `D:\`)
 	// Elsewhere it lives in a distribution; the default names the error when absent.
-	testing.expect(t, wsl_translate("/home/ada/project/", missing) == `\\wsl.localhost\NoSuchDistribution-gitaris\home\ada\project`)
+	testing.expect(t, wsl_translate("/home/ada/project/", missing) == `\\wsl.localhost\NoSuchDistribution-workbench\home\ada\project`)
 	testing.expect(t, wsl_translate("/home/ada/project", none) == "")
 	not_linux := [?]string{`C:\devel`, "relative/path", "//wsl.localhost/Ubuntu", `\\wsl$\Ubuntu`}
 	for path in not_linux do testing.expectf(t, wsl_translate(path, missing) == "", "%s should stay as it is", path)
@@ -70,7 +70,7 @@ wsl_trust_relaxes_ownership_only_while_held :: proc(t: ^testing.T) {
 	// A missing WSL folder fails like any missing folder, and leaves the check on.
 	model: Model
 	defer destroy(&model)
-	err := open(&model, Config{root, `\\wsl.localhost\NoSuchDistribution-gitaris\home\x`, "Ada", "ada@example.invalid"})
+	err := open(&model, Config{root, `\\wsl.localhost\NoSuchDistribution-workbench\home\x`, "Ada", "ada@example.invalid"})
 	testing.expect(t, err != "" && owner_validation_enabled())
 	testing.expect(t, open(&model, Config{root, root, "Ada", "ada@example.invalid"}) == "" && !model.wsl && owner_validation_enabled())
 }

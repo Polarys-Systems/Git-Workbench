@@ -1,5 +1,8 @@
 package font
 
+// Minimal FreeType bindings and helpers: load a font, look up glyphs,
+// measure lines and rasterize glyphs for the text atlas.
+
 import "core:c"
 import "core:os"
 import stbtt "vendor:stb/truetype"

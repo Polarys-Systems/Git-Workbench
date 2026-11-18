@@ -1,5 +1,7 @@
 package workspace
 
+// Branches and tags: listing, creating, checking out and deleting them.
+
 import "core:c"
 import "core:fmt"
 import "core:slice"
@@ -115,8 +117,10 @@ check_ref_name :: proc(kind, name: string) -> string {
 	if name == "" do return fmt.tprintf("Enter a %s name.", kind)
 	if strings.contains_any(name, " \t") do return fmt.tprintf("A %s name cannot contain spaces. Use - or / instead, e.g. feature/new-report.", kind)
 	prefix := kind == "tag" ? "refs/tags/" : "refs/heads/"
+	full_name := cstring_temp(strings.concatenate({prefix, name}, context.temp_allocator))
 	valid: c.int
-	if git.reference_name_is_valid(&valid, cstring_temp(strings.concatenate({prefix, name}, context.temp_allocator))) != git.OK || valid == 0 || name == "HEAD" || strings.has_prefix(name, "-") {
+	git_accepts := git.reference_name_is_valid(&valid, full_name) == git.OK && valid != 0
+	if !git_accepts || name == "HEAD" || strings.has_prefix(name, "-") {
 		return fmt.tprintf("\"%s\" is not a valid %s name: avoid .., ~, ^, :, ?, *, [, \\, a trailing / or .lock, and starting with -.", name, kind)
 	}
 	return ""

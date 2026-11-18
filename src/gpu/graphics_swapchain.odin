@@ -1,5 +1,7 @@
 package gpu
 
+// Swapchain creation, resizing and per-frame image acquire/present.
+
 import "core:c"
 import SDL "vendor:sdl3"
 import vk "vendor:vulkan"

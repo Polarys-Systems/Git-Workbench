@@ -10,7 +10,7 @@ import "../git"
 import "../ui"
 import "../workspace"
 
-gitaris_sync_test_visible :: proc(ctx: ^ui.UiContext, text: string) -> bool {
+workbench_sync_test_visible :: proc(ctx: ^ui.UiContext, text: string) -> bool {
 	for box in ui.elements(ctx) {
 		if box.boundary_rect.height > 0 && strings.contains(strings.to_string(box.text), text) do return true
 	}
@@ -22,7 +22,7 @@ working_tree_diff_and_sync_panel_push_and_pull_strategy :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
 	if !testing.expect(t, git.libgit2_init() > 0) do return
 	defer _ = git.libgit2_shutdown()
-	root, err := os.make_directory_temp("", "gitaris-sync-ui-*", context.allocator)
+	root, err := os.make_directory_temp("", "workbench-sync-ui-*", context.allocator)
 	if !testing.expect(t, err == nil) do return
 	defer delete(root)
 	defer _ = os.remove_all(root)
@@ -48,8 +48,8 @@ working_tree_diff_and_sync_panel_push_and_pull_strategy :: proc(t: ^testing.T) {
 	if !testing.expect(t, result == git.OK) do return
 	testing.expect(t, os.write_entire_file(fmt.tprintf("%s/notes.txt", client_path), "first line\nsecond line\n") == nil)
 
-	state := Gitaris{ready = true, search = strings.builder_make()}
-	defer gitaris_destroy(&state)
+	state := Workbench{ready = true, search = strings.builder_make()}
+	defer workbench_destroy(&state)
 	if !testing.expect(t, workspace.open(&state.model, {root, client_path, "Reader", "reader@example.invalid"}) == "") do return
 	ctx := ui.init()
 	defer ui.destroy(ctx)
@@ -57,47 +57,47 @@ working_tree_diff_and_sync_panel_push_and_pull_strategy :: proc(t: ^testing.T) {
 	w, scale: f32 = 1000, 1
 
 	// The working tree diff shows uncommitted edits against HEAD.
-	gitaris_changes_test_click(t, ctx, &state, &mono, "Working tree", w, scale)
+	workbench_changes_test_click(t, ctx, &state, &mono, "Working tree", w, scale)
 	if !testing.expect(t, state.model.changes.working && state.error == "") do return
-	testing.expect(t, gitaris_sync_test_visible(ctx, "Uncommitted changes") && gitaris_sync_test_visible(ctx, "second line"))
+	testing.expect(t, workbench_sync_test_visible(ctx, "Uncommitted changes") && workbench_sync_test_visible(ctx, "second line"))
 	testing.expect(t, os.write_entire_file(fmt.tprintf("%s/notes.txt", client_path), "first line\n") == nil)
-	gitaris_changes_test_click(t, ctx, &state, &mono, "Reload", w, scale)
-	testing.expect(t, len(state.model.changes.files) == 0 && gitaris_sync_test_visible(ctx, "No uncommitted changes"))
-	gitaris_changes_test_click(t, ctx, &state, &mono, "← History", w, scale)
+	workbench_changes_test_click(t, ctx, &state, &mono, "Reload", w, scale)
+	testing.expect(t, len(state.model.changes.files) == 0 && workbench_sync_test_visible(ctx, "No uncommitted changes"))
+	workbench_changes_test_click(t, ctx, &state, &mono, "← History", w, scale)
 	testing.expect(t, !workspace.changes_open(state.model.changes))
 
 	// Sync: the pull strategy toggles pull.rebase in the repository config.
-	gitaris_changes_test_click(t, ctx, &state, &mono, "Sync", w, scale)
+	workbench_changes_test_click(t, ctx, &state, &mono, "Sync", w, scale)
 	if !testing.expect(t, state.menu == .SYNC) do return
-	testing.expect(t, gitaris_sync_test_visible(ctx, "no upstream"))
-	gitaris_changes_test_click(t, ctx, &state, &mono, "Rebase local commits", w, scale)
+	testing.expect(t, workbench_sync_test_visible(ctx, "no upstream"))
+	workbench_changes_test_click(t, ctx, &state, &mono, "Rebase local commits", w, scale)
 	testing.expect(t, state.model.sync.rebase && workspace.pull_rebase_enabled(client, "main"))
-	gitaris_changes_test_click(t, ctx, &state, &mono, "Fast-forward only", w, scale)
+	workbench_changes_test_click(t, ctx, &state, &mono, "Fast-forward only", w, scale)
 	testing.expect(t, !state.model.sync.rebase && !workspace.pull_rebase_enabled(client, "main"))
 
 	// Pull needs an upstream; Push publishes the branch in the background.
-	gitaris_changes_test_click(t, ctx, &state, &mono, "Pull", w, scale)
+	workbench_changes_test_click(t, ctx, &state, &mono, "Pull", w, scale)
 	testing.expect(t, strings.contains(state.error, "no upstream"))
-	gitaris_changes_test_click(t, ctx, &state, &mono, "Push", w, scale)
+	workbench_changes_test_click(t, ctx, &state, &mono, "Push", w, scale)
 	workspace.remote_await(&state.remote)
-	gitaris_changes_test_frame(ctx, &state, &mono, w, scale)
+	workbench_changes_test_frame(ctx, &state, &mono, w, scale)
 	testing.expectf(t, state.error == "" && state.notice == "Pushed main to origin/main.", "%s / %s", state.error, state.notice)
-	testing.expect(t, state.model.sync.upstream == "origin/main" && gitaris_sync_test_visible(ctx, "main  →  origin/main"))
-	testing.expect(t, gitaris_sync_test_visible(ctx, "Pushed main to origin/main."))
+	testing.expect(t, state.model.sync.upstream == "origin/main" && workbench_sync_test_visible(ctx, "main  →  origin/main"))
+	testing.expect(t, workbench_sync_test_visible(ctx, "Pushed main to origin/main."))
 
 	// Force push needs a confirming click and can be cancelled.
-	gitaris_changes_test_click(t, ctx, &state, &mono, "Force push (lease)", w, scale)
-	testing.expect(t, state.force_armed && gitaris_sync_test_visible(ctx, "--force-with-lease"))
+	workbench_changes_test_click(t, ctx, &state, &mono, "Force push (lease)", w, scale)
+	testing.expect(t, state.force_armed && workbench_sync_test_visible(ctx, "--force-with-lease"))
 	testing.expect(t, !workspace.remote_busy(&state.remote))
-	gitaris_changes_test_click(t, ctx, &state, &mono, "Cancel", w, scale)
-	testing.expect(t, !state.force_armed && !gitaris_sync_test_visible(ctx, "--force-with-lease"))
-	testing.expect(t, !gitaris_sync_test_visible(ctx, "Confirm force push") && !workspace.remote_busy(&state.remote))
-	gitaris_changes_test_click(t, ctx, &state, &mono, "Force push (lease)", w, scale)
-	gitaris_changes_test_click(t, ctx, &state, &mono, "Confirm force push", w, scale)
+	workbench_changes_test_click(t, ctx, &state, &mono, "Cancel", w, scale)
+	testing.expect(t, !state.force_armed && !workbench_sync_test_visible(ctx, "--force-with-lease"))
+	testing.expect(t, !workbench_sync_test_visible(ctx, "Confirm force push") && !workspace.remote_busy(&state.remote))
+	workbench_changes_test_click(t, ctx, &state, &mono, "Force push (lease)", w, scale)
+	workbench_changes_test_click(t, ctx, &state, &mono, "Confirm force push", w, scale)
 	workspace.remote_await(&state.remote)
-	gitaris_changes_test_frame(ctx, &state, &mono, w, scale)
+	workbench_changes_test_frame(ctx, &state, &mono, w, scale)
 	testing.expectf(t, state.error == "" && strings.has_prefix(state.notice, "Force-pushed (with lease)"), "%s / %s", state.error, state.notice)
 
-	gitaris_changes_test_click(t, ctx, &state, &mono, "Done", w, scale)
-	testing.expect(t, state.menu == .NONE && gitaris_sync_test_visible(ctx, "Force-pushed (with lease)"))
+	workbench_changes_test_click(t, ctx, &state, &mono, "Done", w, scale)
+	testing.expect(t, state.menu == .NONE && workbench_sync_test_visible(ctx, "Force-pushed (with lease)"))
 }

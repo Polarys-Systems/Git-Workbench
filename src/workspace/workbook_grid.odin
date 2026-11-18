@@ -1,5 +1,8 @@
 package workspace
 
+// Builds the spreadsheet diff shown by the grid view: rows and cells of two
+// workbook versions, paired and marked added, removed or modified.
+
 import "core:c"
 import "core:mem/virtual"
 import "core:strings"
@@ -185,6 +188,10 @@ pair_rows :: proc(builder: ^Sheet_Builder) -> []Grid_Row {
 
 // Builds the grid from both versions (either may be empty). Errors are
 // temp-allocated, like git_error.
+//
+// 1. Diff the two versions' text lines (one line per spreadsheet row).
+// 2. Turn each diff line into a row of its sheet.
+// 3. Pair removed rows with added ones, and summarize each sheet.
 @(private)
 build_workbook_grid :: proc(old_book, new_book: ^xlsx.Workbook_Text) -> (grid: Workbook_Grid, err: string) {
 	arena := new(virtual.Arena)
@@ -197,47 +204,75 @@ build_workbook_grid :: proc(old_book, new_book: ^xlsx.Workbook_Text) -> (grid: W
 		virtual.arena_destroy(arena)
 		free(arena)
 	}
-	entries := make([dynamic]Grid_Entry, context.temp_allocator)
-	{
-		// Context as long as the workbook keeps every row in a single hunk.
-		options: git.Diff_Options
-		if git.diff_options_init(&options, git.DIFF_OPTIONS_VERSION) != git.OK do return {}, git_error("Could not initialize the comparison")
-		options.flags = git.DIFF_FORCE_TEXT
-		options.context_lines = u32(max(len(old_book.lines), len(new_book.lines)) + 1)
-		patch: ^git.Patch
-		if git.patch_from_buffers(&patch, raw_data(old_book.compare), c.size_t(len(old_book.compare)), "a.xlsx",
-			raw_data(new_book.compare), c.size_t(len(new_book.compare)), "b.xlsx", &options) != git.OK {
-			return {}, git_error("Could not compare the workbook versions")
-		}
-		defer git.patch_free(patch)
-		hunks := patch != nil ? git.patch_num_hunks(patch) : 0
-		for h in 0..<hunks {
-			count: c.size_t
-			hunk: ^git.Diff_Hunk
-			if git.patch_get_hunk(&hunk, &count, patch, h) != git.OK do return {}, git_error("Could not read a diff hunk")
-			for k in 0..<count {
-				line: ^git.Diff_Line
-				if git.patch_get_line_in_hunk(&line, patch, h, k) != git.OK do return {}, git_error("Could not read a changed line")
-				kind: Change_Kind
-				switch u8(line.origin) {
-				case '+': kind = .ADDITION
-				case '-': kind = .DELETION
-				case ' ': kind = .CONTEXT
-				case: continue
-				}
-				append(&entries, Grid_Entry{kind, int(line.old_lineno) - 1, int(line.new_lineno) - 1})
+	entries, diff_err := diff_workbook_lines(old_book, new_book)
+	if diff_err != "" do return {}, diff_err
+
+	// Everything the grid keeps is allocated in its arena.
+	context.allocator = virtual.arena_allocator(arena)
+	builders := rows_by_sheet(entries[:], old_book, new_book)
+	grid.sheets = make([]Grid_Sheet, len(builders))
+	grid.first_changed = -1
+	for &builder, s in builders {
+		sheet := &grid.sheets[s]
+		finish_sheet(sheet, &builder, len(old_book.lines) > 0)
+		if grid.first_changed < 0 && (len(sheet.changes) > 0 || sheet.added || sheet.removed) do grid.first_changed = s
+	}
+	grid.first_changed = max(grid.first_changed, 0)
+	grid.arena = arena
+	succeeded = true
+	return grid, ""
+}
+
+// Diffs the two versions line by line. Each entry says whether a line was
+// added, removed or kept, and where it is in each version.
+@(private = "file")
+diff_workbook_lines :: proc(old_book, new_book: ^xlsx.Workbook_Text) -> (entries: [dynamic]Grid_Entry, err: string) {
+	entries = make([dynamic]Grid_Entry, context.temp_allocator)
+	options: git.Diff_Options
+	if git.diff_options_init(&options, git.DIFF_OPTIONS_VERSION) != git.OK do return {}, git_error("Could not initialize the comparison")
+	options.flags = git.DIFF_FORCE_TEXT
+	// Context as long as the workbook keeps every row in a single hunk.
+	options.context_lines = u32(max(len(old_book.lines), len(new_book.lines)) + 1)
+	patch: ^git.Patch
+	if git.patch_from_buffers(&patch, raw_data(old_book.compare), c.size_t(len(old_book.compare)), "a.xlsx",
+		raw_data(new_book.compare), c.size_t(len(new_book.compare)), "b.xlsx", &options) != git.OK {
+		return {}, git_error("Could not compare the workbook versions")
+	}
+	defer git.patch_free(patch)
+
+	hunks := patch != nil ? git.patch_num_hunks(patch) : 0
+	if hunks == 0 {
+		// Identical versions: every line is unchanged.
+		for i in 0..<len(new_book.lines) do append(&entries, Grid_Entry{.CONTEXT, i, i})
+		return entries, ""
+	}
+	for h in 0..<hunks {
+		count: c.size_t
+		hunk: ^git.Diff_Hunk
+		if git.patch_get_hunk(&hunk, &count, patch, h) != git.OK do return {}, git_error("Could not read a diff hunk")
+		for k in 0..<count {
+			line: ^git.Diff_Line
+			if git.patch_get_line_in_hunk(&line, patch, h, k) != git.OK do return {}, git_error("Could not read a changed line")
+			kind: Change_Kind
+			switch u8(line.origin) {
+			case '+': kind = .ADDITION
+			case '-': kind = .DELETION
+			case ' ': kind = .CONTEXT
+			case: continue // "No newline at end of file" markers and the like.
 			}
-		}
-		if hunks == 0 {
-			// Identical versions: every line is unchanged.
-			for i in 0..<len(new_book.lines) do append(&entries, Grid_Entry{.CONTEXT, i, i})
+			append(&entries, Grid_Entry{kind, int(line.old_lineno) - 1, int(line.new_lineno) - 1})
 		}
 	}
+	return entries, ""
+}
 
-	context.allocator = virtual.arena_allocator(arena)
+// Sorts the diffed lines into their sheets, as grid rows. Removed lines come
+// from the old version, all others from the new one.
+@(private = "file")
+rows_by_sheet :: proc(entries: []Grid_Entry, old_book, new_book: ^xlsx.Workbook_Text) -> [dynamic]Sheet_Builder {
 	builders := make([dynamic]Sheet_Builder, context.temp_allocator)
-	sheet_of :: proc(builders: ^[dynamic]Sheet_Builder, name: string) -> ^Sheet_Builder {
-		for &b in builders do if b.name == name do return &b
+	sheet_named :: proc(builders: ^[dynamic]Sheet_Builder, name: string) -> ^Sheet_Builder {
+		for &builder in builders do if builder.name == name do return &builder
 		append(builders, Sheet_Builder{name = strings.clone(name)})
 		return &builders[len(builders) - 1]
 	}
@@ -247,7 +282,7 @@ build_workbook_grid :: proc(old_book, new_book: ^xlsx.Workbook_Text) -> (grid: W
 		index := deleted ? entry.old_line : entry.new_line
 		if index < 0 || index >= len(book.lines) do continue
 		ref := book.lines[index]
-		builder := sheet_of(&builders, book.sheets[ref.sheet])
+		builder := sheet_named(&builders, book.sheets[ref.sheet])
 		if ref.row == 0 {
 			// Sheet headers say which versions have the sheet.
 			if entry.kind != .ADDITION do builder.seen_old = true
@@ -257,8 +292,10 @@ build_workbook_grid :: proc(old_book, new_book: ^xlsx.Workbook_Text) -> (grid: W
 		cells := book.cells[index]
 		row := Grid_Row{row = ref.row}
 		switch entry.kind {
-		case .ADDITION: row.kind = .ADDED
-		case .DELETION: row.kind, row.row, row.old_row = .DELETED, 0, ref.row
+		case .ADDITION:
+			row.kind = .ADDED
+		case .DELETION:
+			row.kind, row.row, row.old_row = .DELETED, 0, ref.row
 		case .CONTEXT, .HUNK, .NOTE:
 			row.kind = .SAME
 			if entry.old_line >= 0 && entry.old_line < len(old_book.lines) do row.old_row = old_book.lines[entry.old_line].row
@@ -267,41 +304,39 @@ build_workbook_grid :: proc(old_book, new_book: ^xlsx.Workbook_Text) -> (grid: W
 		append(&builder.rows, row)
 		append(&builder.sources, cells)
 	}
+	return builders
+}
 
-	sheets := make([]Grid_Sheet, len(builders))
-	grid.first_changed = -1
-	for &builder, s in builders {
-		sheet := &sheets[s]
-		sheet.name = builder.name
-		sheet.added = builder.seen_new && !builder.seen_old && len(old_book.lines) > 0
-		sheet.removed = builder.seen_old && !builder.seen_new
-		sheet.rows = pair_rows(&builder)
-		changes := make([dynamic]int)
-		for row, i in sheet.rows {
-			for cell in row.cells do sheet.columns = max(sheet.columns, cell.col)
-			switch row.kind {
-			case .SAME: continue
-			case .ADDED: sheet.added_rows += 1
-			case .DELETED: sheet.removed_rows += 1
-			case .MODIFIED: sheet.modified_rows += 1
-			}
-			append(&changes, i)
+// Fills in a sheet from its rows: pairs removed rows with their replacements,
+// lists the changed rows, counts them, and measures each column's widest value.
+@(private = "file")
+finish_sheet :: proc(sheet: ^Grid_Sheet, builder: ^Sheet_Builder, has_old_version: bool) {
+	sheet.name = builder.name
+	sheet.added = builder.seen_new && !builder.seen_old && has_old_version
+	sheet.removed = builder.seen_old && !builder.seen_new
+	sheet.rows = pair_rows(builder)
+
+	changes := make([dynamic]int)
+	for row, i in sheet.rows {
+		for cell in row.cells do sheet.columns = max(sheet.columns, cell.col)
+		switch row.kind {
+		case .SAME: continue
+		case .ADDED: sheet.added_rows += 1
+		case .DELETED: sheet.removed_rows += 1
+		case .MODIFIED: sheet.modified_rows += 1
 		}
-		sheet.changes = changes[:]
-		sheet.widths = make([]int, sheet.columns)
-		for row in sheet.rows {
-			for cell in row.cells {
-				shown := cell.value != "" ? cell.value : cell.formula
-				width := utf8.rune_count(shown) + (cell.value == "" && cell.formula != "" ? 1 : 0)
-				width = max(width, utf8.rune_count(cell.old_value))
-				sheet.widths[cell.col - 1] = max(sheet.widths[cell.col - 1], width)
-			}
-		}
-		if grid.first_changed < 0 && (len(sheet.changes) > 0 || sheet.added || sheet.removed) do grid.first_changed = s
+		append(&changes, i)
 	}
-	grid.first_changed = max(grid.first_changed, 0)
-	grid.sheets = sheets
-	grid.arena = arena
-	succeeded = true
-	return grid, ""
+	sheet.changes = changes[:]
+
+	sheet.widths = make([]int, sheet.columns)
+	for row in sheet.rows {
+		for cell in row.cells {
+			// A formula without a cached value is shown as "=FORMULA".
+			shown := cell.value != "" ? cell.value : cell.formula
+			width := utf8.rune_count(shown) + (cell.value == "" && cell.formula != "" ? 1 : 0)
+			width = max(width, utf8.rune_count(cell.old_value))
+			sheet.widths[cell.col - 1] = max(sheet.widths[cell.col - 1], width)
+		}
+	}
 }

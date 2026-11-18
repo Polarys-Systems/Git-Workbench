@@ -9,7 +9,7 @@ import "core:testing"
 import git "../git"
 
 test_folder :: proc(t: ^testing.T) -> string {
-	path, err := os.make_directory_temp("", "gitaris-test-*", context.allocator)
+	path, err := os.make_directory_temp("", "workbench-test-*", context.allocator)
 	testing.expect(t, err == nil)
 	return path
 }

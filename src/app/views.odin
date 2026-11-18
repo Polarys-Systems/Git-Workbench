@@ -1,5 +1,8 @@
 package app
 
+// Top-level UI: picks which view to draw (welcome, settings, workspace
+// and its sub-views), keeps the window title current and animates view changes.
+
 import "core:strings"
 
 import font_core "../font"
@@ -7,12 +10,12 @@ import "../ui"
 import "../workspace"
 import SDL "vendor:sdl3"
 
-gitaris_ui :: proc(ctx: ^ui.UiContext, face, title, welcome, icons: ^font_core.Face,
-	state: ^Gitaris, window: ^SDL.Window, width, height, scale: f32, mono: ^font_core.Face = nil) {
-	gitaris_remote_poll(state)
-	gitaris_scan_poll(state)
-	gitaris_animate_view(ctx, state)
-	gitaris_window_title(state, window)
+workbench_ui :: proc(ctx: ^ui.UiContext, face, title, welcome, icons: ^font_core.Face,
+	state: ^Workbench, window: ^SDL.Window, width, height, scale: f32, mono: ^font_core.Face = nil) {
+	workbench_remote_poll(state)
+	workbench_scan_poll(state)
+	workbench_animate_view(ctx, state)
+	workbench_window_title(state, window)
 	logical_width, logical_height := width / scale, height / scale
 	code_face := mono != nil ? mono : face
 	ui.begin(ctx, width, height)
@@ -24,23 +27,23 @@ gitaris_ui :: proc(ctx: ^ui.UiContext, face, title, welcome, icons: ^font_core.F
 	content_end := 0
 	if state.ready {
 		switch state.menu {
-		case .NONE: gitaris_history_ui(ctx, face, title, icons, state, logical_width, logical_height, scale, code_face)
-		case .MERGE: gitaris_merge_ui(ctx, face, title, code_face, state, logical_width, logical_height, scale)
-		case .SYNC: gitaris_sync_ui(ctx, face, title, state, logical_width, logical_height, scale)
-		case .SUBMODULES: gitaris_submodules_ui(ctx, face, title, code_face, state, logical_width, logical_height, scale)
-		case .PROJECT, .PREFERENCES: gitaris_settings_ui(ctx, face, title, state, window, logical_width, logical_height, scale)
+		case .NONE: workbench_history_ui(ctx, face, title, icons, state, logical_width, logical_height, scale, code_face)
+		case .MERGE: workbench_merge_ui(ctx, face, title, code_face, state, logical_width, logical_height, scale)
+		case .SYNC: workbench_sync_ui(ctx, face, title, state, logical_width, logical_height, scale)
+		case .SUBMODULES: workbench_submodules_ui(ctx, face, title, code_face, state, logical_width, logical_height, scale)
+		case .PROJECT, .PREFERENCES: workbench_settings_ui(ctx, face, title, state, window, logical_width, logical_height, scale)
 		}
 		content_end = ctx.n_boxes
-		gitaris_menu_ui(ctx, face, title, icons, state, logical_width, scale)
+		workbench_menu_ui(ctx, face, title, icons, state, logical_width, scale)
 		if state.dialog != .NONE {
-			gitaris_dialog_ui(ctx, face, title, code_face, state, logical_width, logical_height, scale)
+			workbench_dialog_ui(ctx, face, title, code_face, state, logical_width, logical_height, scale)
 		} else {
-			gitaris_modal_first_box = -1
+			workbench_modal_first_box = -1
 		}
 	} else {
 		state.dialog = .NONE
-		gitaris_modal_first_box = -1
-		gitaris_welcome_ui(ctx, face, title, welcome, icons, state, window, logical_width, logical_height, scale)
+		workbench_modal_first_box = -1
+		workbench_welcome_ui(ctx, face, title, welcome, icons, state, window, logical_width, logical_height, scale)
 		content_end = ctx.n_boxes
 	}
 	ui.style_pop(ctx)
@@ -49,10 +52,10 @@ gitaris_ui :: proc(ctx: ^ui.UiContext, face, title, welcome, icons: ^font_core.F
 }
 
 // The title bar names the open repository, including the submodule path.
-gitaris_window_title :: proc(state: ^Gitaris, window: ^SDL.Window) {
+workbench_window_title :: proc(state: ^Workbench, window: ^SDL.Window) {
 	text := "Git-Workbench"
 	if state.ready {
-		crumbs := gitaris_crumbs(state)
+		crumbs := workbench_crumbs(state)
 		text = strings.concatenate({strings.join(crumbs[:], " › ", context.temp_allocator), " — Git-Workbench"}, context.temp_allocator)
 	}
 	if text == state.window_title do return
@@ -61,7 +64,7 @@ gitaris_window_title :: proc(state: ^Gitaris, window: ^SDL.Window) {
 	if window != nil do _ = SDL.SetWindowTitle(window, strings.clone_to_cstring(text, context.temp_allocator))
 }
 
-gitaris_animate_view :: proc(ctx: ^ui.UiContext, state: ^Gitaris) {
+workbench_animate_view :: proc(ctx: ^ui.UiContext, state: ^Workbench) {
 	view := "welcome"
 	if state.ready {
 		switch state.menu {

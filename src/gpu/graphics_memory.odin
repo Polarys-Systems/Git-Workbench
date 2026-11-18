@@ -1,5 +1,7 @@
 package gpu
 
+// GPU memory allocation and the creation of buffers and textures.
+
 import "core:mem"
 import vk "vendor:vulkan"
 

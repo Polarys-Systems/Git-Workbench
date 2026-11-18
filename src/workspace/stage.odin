@@ -1,5 +1,7 @@
 package workspace
 
+// Staging, unstaging and committing in the working tree.
+
 import "core:os"
 import "core:strings"
 
@@ -142,7 +144,7 @@ unstage_files :: proc(model: ^Model, targets: []int) -> string {
 	return select_working_changes(model)
 }
 
-// Commits exactly what is staged, as the configured Gitaris identity (author
+// Commits exactly what is staged, as the configured Workbench identity (author
 // and committer), and moves the current branch. A merge, revert or cherry-pick
 // in progress is concluded the way `git commit` does (merge parents included,
 // state files removed). Hooks are not run and nothing is signed.

@@ -68,15 +68,15 @@ submodule_navigation_keeps_the_open_repository_clear :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
 	if !testing.expect(t, git.libgit2_init() > 0) do return
 	defer _ = git.libgit2_shutdown()
-	root, err := os.make_directory_temp("", "gitaris-submodule-ui-*", context.allocator)
+	root, err := os.make_directory_temp("", "workbench-submodule-ui-*", context.allocator)
 	if !testing.expect(t, err == nil) do return
 	defer delete(root)
 	defer _ = os.remove_all(root)
 	parent_path, ok := submodule_test_fixture(t, root)
 	if !ok do return
 
-	state := Gitaris{ready = true, search = strings.builder_make(), submodule_focus = -1}
-	defer gitaris_destroy(&state)
+	state := Workbench{ready = true, search = strings.builder_make(), submodule_focus = -1}
+	defer workbench_destroy(&state)
 	for field in ([]^strings.Builder{&state.ssh, &state.project, &state.username, &state.email}) do field^ = strings.builder_make()
 	if !testing.expect(t, workspace.open(&state.model, {root, parent_path, "Submodule UI", "submodule-ui@example.invalid"}) == "") do return
 	ctx := ui.init()
@@ -86,44 +86,44 @@ submodule_navigation_keeps_the_open_repository_clear :: proc(t: ^testing.T) {
 	parent_name := filepath.base(parent_path)
 
 	// The sidebar lists the submodule; clicking a checked-out one opens it.
-	gitaris_changes_test_frame(ctx, &state, &mono, w, scale)
-	testing.expect(t, gitaris_sync_test_visible(ctx, "vendor/lib") && gitaris_sync_test_visible(ctx, "Up to date · open"))
+	workbench_changes_test_frame(ctx, &state, &mono, w, scale)
+	testing.expect(t, workbench_sync_test_visible(ctx, "vendor/lib") && workbench_sync_test_visible(ctx, "Up to date · open"))
 	testing.expect(t, state.window_title == fmt.tprintf("%s — Git-Workbench", parent_name))
-	gitaris_changes_test_click(t, ctx, &state, &mono, "vendor/lib", w, scale)
+	workbench_changes_test_click(t, ctx, &state, &mono, "vendor/lib", w, scale)
 	testing.expect(t, state.error == "" && len(state.parents) == 1 && state.trail[0] == "vendor/lib")
 	opened, _ := strings.replace_all(state.model.config.project_path, "\\", "/", context.temp_allocator)
 	testing.expect(t, strings.has_suffix(opened, "parent/vendor/lib"))
 	testing.expect(t, len(state.model.commits) == 1 && state.model.commits[0].message == "Library")
 	// Breadcrumb, tag, sidebar and title all name the submodule and its parent.
-	testing.expect(t, gitaris_repo_label(&state) == "vendor/lib" && gitaris_parent_label(&state) == parent_name)
-	testing.expect(t, gitaris_sync_test_visible(ctx, "SUBMODULE") && gitaris_sync_test_visible(ctx, fmt.tprintf("Back to %s", parent_name)))
+	testing.expect(t, workbench_repo_label(&state) == "vendor/lib" && workbench_parent_label(&state) == parent_name)
+	testing.expect(t, workbench_sync_test_visible(ctx, "SUBMODULE") && workbench_sync_test_visible(ctx, fmt.tprintf("Back to %s", parent_name)))
 	testing.expect(t, state.window_title == fmt.tprintf("%s › vendor/lib — Git-Workbench", parent_name))
 	testing.expect(t, strings.contains(state.notice, "Opened submodule vendor/lib"))
 
 	// Saving Preferences inside the submodule keeps it open and saves the parent.
 	config_path := fmt.tprintf("%s/gitaris.json", root)
-	gitaris_open_menu(&state, .PREFERENCES)
+	workbench_open_menu(&state, .PREFERENCES)
 	testing.expect(t, strings.to_string(state.project) == parent_path)
-	gitaris_set_field(&state.username, "Renamed")
-	gitaris_start(&state, config_path)
+	workbench_set_field(&state.username, "Renamed")
+	workbench_start(&state, config_path)
 	testing.expect(t, state.error == "" && len(state.parents) == 1 && state.model.config.username == "Renamed")
 	saved, load_error := workspace.config_load(config_path)
 	defer workspace.config_destroy(&saved)
 	testing.expect(t, load_error == "" && saved.project_path == parent_path && saved.username == "Renamed")
 
 	// The parent crumb returns to the parent and points at the submodule.
-	gitaris_changes_test_click(t, ctx, &state, &mono, parent_name, w, scale)
+	workbench_changes_test_click(t, ctx, &state, &mono, parent_name, w, scale)
 	testing.expect(t, state.error == "" && len(state.parents) == 0 && len(state.trail) == 0)
 	testing.expect(t, state.model.config.project_path == parent_path && state.submodule_focus == 0)
 	testing.expect(t, state.window_title == fmt.tprintf("%s — Git-Workbench", parent_name))
 
 	// The Submodules view opens it too; opening another project leaves it.
-	gitaris_open_menu(&state, .SUBMODULES)
-	gitaris_changes_test_frame(ctx, &state, &mono, w, scale)
-	testing.expect(t, gitaris_sync_test_visible(ctx, "Up to date") && gitaris_sync_test_visible(ctx, "recorded "))
-	gitaris_changes_test_click(t, ctx, &state, &mono, "Open  →", w, scale)
+	workbench_open_menu(&state, .SUBMODULES)
+	workbench_changes_test_frame(ctx, &state, &mono, w, scale)
+	testing.expect(t, workbench_sync_test_visible(ctx, "Up to date") && workbench_sync_test_visible(ctx, "recorded "))
+	workbench_changes_test_click(t, ctx, &state, &mono, "Open  →", w, scale)
 	testing.expect(t, len(state.parents) == 1 && state.menu == .NONE)
-	gitaris_open_menu(&state, .PROJECT)
-	gitaris_start(&state, config_path)
+	workbench_open_menu(&state, .PROJECT)
+	workbench_start(&state, config_path)
 	testing.expect(t, state.error == "" && len(state.parents) == 0 && state.model.config.project_path == parent_path)
 }

@@ -14,7 +14,7 @@ merge_editor_menu_choices_manual_edit_and_save :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
 	if !testing.expect(t, git.libgit2_init() > 0) do return
 	defer _ = git.libgit2_shutdown()
-	root, err := os.make_directory_temp("", "gitaris-merge-ui-*", context.allocator)
+	root, err := os.make_directory_temp("", "workbench-merge-ui-*", context.allocator)
 	if !testing.expect(t, err == nil) do return
 	defer delete(root)
 	defer _ = os.remove_all(root)
@@ -40,42 +40,42 @@ merge_editor_menu_choices_manual_edit_and_save :: proc(t: ^testing.T) {
 			entry.path = "conflict.txt"
 			if !testing.expect(t, git.index_conflict_add(index, &entry, &entry, &entry) == git.OK) do return
 			if !testing.expect(t, git.index_write(index) == git.OK) do return
-			state := Gitaris{ready = true, search = strings.builder_make()}
-			defer gitaris_destroy(&state)
+			state := Workbench{ready = true, search = strings.builder_make()}
+			defer workbench_destroy(&state)
 			if !testing.expect(t, workspace.open(&state.model, {root, root, "Resolver", "resolver@example.invalid"}) == "") do return
 			ctx := ui.init()
 			defer ui.destroy(ctx)
-			gitaris_changes_test_click(t, ctx, &state, nil, "Merge editor", w, scale)
+			workbench_changes_test_click(t, ctx, &state, nil, "Merge editor", w, scale)
 			if !testing.expect(t, state.menu == .MERGE && state.error == "" && len(state.model.merge.files) == 1) do return
-			gitaris_changes_test_click(t, ctx, &state, nil, "Use incoming", w, scale)
+			workbench_changes_test_click(t, ctx, &state, nil, "Use incoming", w, scale)
 			file := &state.model.merge.files[0]
 			testing.expect(t, strings.to_string(file.result) == "prefix\nincoming\nsuffix\n")
-			gitaris_changes_test_click(t, ctx, &state, nil, "← History", w, scale)
-			gitaris_changes_test_click(t, ctx, &state, nil, "Merge editor", w, scale)
+			workbench_changes_test_click(t, ctx, &state, nil, "← History", w, scale)
+			workbench_changes_test_click(t, ctx, &state, nil, "Merge editor", w, scale)
 			testing.expect(t, strings.to_string(file.result) == "prefix\nincoming\nsuffix\n")
-			gitaris_changes_test_click(t, ctx, &state, nil, "Reset result", w, scale)
+			workbench_changes_test_click(t, ctx, &state, nil, "Reset result", w, scale)
 			testing.expect(t, strings.to_string(file.result) == content)
-			gitaris_changes_test_click(t, ctx, &state, nil, "Incoming + current", w, scale)
+			workbench_changes_test_click(t, ctx, &state, nil, "Incoming + current", w, scale)
 			testing.expect(t, strings.to_string(file.result) == "prefix\nincoming\ncurrent\nsuffix\n")
 			// The editor takes focus at the replaced block, ready for typing.
-			testing.expect(t, ctx.focus_id == gitaris_merge_result_id(file.path) && ctx.caret == len("prefix\n"))
-			gitaris_changes_test_click(t, ctx, &state, nil, "Reset result", w, scale)
+			testing.expect(t, ctx.focus_id == workbench_merge_result_id(file.path) && ctx.caret == len("prefix\n"))
+			workbench_changes_test_click(t, ctx, &state, nil, "Reset result", w, scale)
 			testing.expect(t, strings.to_string(file.result) == content)
-			gitaris_changes_test_click(t, ctx, &state, nil, "Current + incoming", w, scale)
-			gitaris_changes_test_click(t, ctx, &state, nil, "prefix\ncurrent\nincoming\nsuffix\n", w, scale)
+			workbench_changes_test_click(t, ctx, &state, nil, "Current + incoming", w, scale)
+			workbench_changes_test_click(t, ctx, &state, nil, "prefix\ncurrent\nincoming\nsuffix\n", w, scale)
 			ui.input_text(ctx, "manual ending")
-			gitaris_changes_test_frame(ctx, &state, nil, w, scale)
+			workbench_changes_test_frame(ctx, &state, nil, w, scale)
 			testing.expect(t, strings.has_suffix(strings.to_string(file.result), "manual ending"))
 			for box in ui.elements(ctx) {
 				if box.boundary_rect.height <= 0 do continue
 				testing.expect(t, box.boundary_rect.x >= 0 && box.boundary_rect.x + box.boundary_rect.width <= w * scale)
 			}
-			gitaris_changes_test_click(t, ctx, &state, nil, "Save and stage", w, scale)
+			workbench_changes_test_click(t, ctx, &state, nil, "Save and stage", w, scale)
 			if !testing.expect(t, file.staged && state.error == "") do return
 			actual, read_err := os.read_entire_file(path, context.temp_allocator)
 			testing.expect(t, read_err == nil && string(actual) == "prefix\ncurrent\nincoming\nsuffix\nmanual ending")
 			testing.expect(t, git.index_read(index, 1) == git.OK && git.index_has_conflicts(index) == 0)
-			gitaris_changes_test_click(t, ctx, &state, nil, "Reload conflicts", w, scale)
+			workbench_changes_test_click(t, ctx, &state, nil, "Reload conflicts", w, scale)
 			testing.expect(t, len(state.model.merge.files) == 0 && state.error == "")
 		}
 	}

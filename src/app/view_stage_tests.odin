@@ -11,18 +11,18 @@ import "../ui"
 import "../workspace"
 
 // Clicks the checkbox at the start of a working file's row (left of its name).
-gitaris_stage_test_check :: proc(t: ^testing.T, ctx: ^ui.UiContext, state: ^Gitaris,
+workbench_stage_test_check :: proc(t: ^testing.T, ctx: ^ui.UiContext, state: ^Workbench,
 	mono: ^font_core.Face, name: string, w, scale: f32) {
-	gitaris_changes_test_frame(ctx, state, mono, w, scale)
+	workbench_changes_test_frame(ctx, state, mono, w, scale)
 	for box in ui.elements(ctx) {
 		if strings.to_string(box.text) != name || box.boundary_rect.height <= 0 do continue
 		ui.input_mouse_move(ctx, box.rect.x - 32 * scale, box.rect.y + 17 * scale)
 		ui.input_mouse_button(ctx, .LEFT, true)
-		gitaris_changes_test_frame(ctx, state, mono, w, scale)
+		workbench_changes_test_frame(ctx, state, mono, w, scale)
 		ui.input_mouse_button(ctx, .LEFT, false)
-		gitaris_changes_test_frame(ctx, state, mono, w, scale)
+		workbench_changes_test_frame(ctx, state, mono, w, scale)
 		// The hint above the list reflects the new check on the following frame.
-		gitaris_changes_test_frame(ctx, state, mono, w, scale)
+		workbench_changes_test_frame(ctx, state, mono, w, scale)
 		return
 	}
 	testing.expectf(t, false, "File row not found: %s", name)
@@ -33,7 +33,7 @@ working_tree_checks_stage_unstage_and_commit :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
 	if !testing.expect(t, git.libgit2_init() > 0) do return
 	defer _ = git.libgit2_shutdown()
-	root, err := os.make_directory_temp("", "gitaris-stage-ui-*", context.allocator)
+	root, err := os.make_directory_temp("", "workbench-stage-ui-*", context.allocator)
 	if !testing.expect(t, err == nil) do return
 	defer delete(root)
 	defer _ = os.remove_all(root)
@@ -54,8 +54,8 @@ working_tree_checks_stage_unstage_and_commit :: proc(t: ^testing.T) {
 	if !testing.expect(t, result == git.OK) do return
 	for name in names do testing.expect(t, os.write_entire_file(fmt.tprintf("%s/%s", root, name), "v2\n") == nil)
 
-	state := Gitaris{ready = true, search = strings.builder_make()}
-	defer gitaris_destroy(&state)
+	state := Workbench{ready = true, search = strings.builder_make()}
+	defer workbench_destroy(&state)
 	if !testing.expect(t, workspace.open(&state.model, {root, root, "Committer", "committer@example.invalid"}) == "") do return
 	ctx := ui.init()
 	defer ui.destroy(ctx)
@@ -63,34 +63,34 @@ working_tree_checks_stage_unstage_and_commit :: proc(t: ^testing.T) {
 	w, scale: f32 = 1000, 2
 	changes := &state.model.changes
 
-	gitaris_changes_test_click(t, ctx, &state, &mono, "Working tree", w, scale)
+	workbench_changes_test_click(t, ctx, &state, &mono, "Working tree", w, scale)
 	if !testing.expect(t, changes.working && len(changes.files) == 3) do return
-	testing.expect(t, gitaris_sync_test_visible(ctx, "Nothing staged in"))
-	testing.expect(t, gitaris_sync_test_visible(ctx, "Applies to the viewed file"))
+	testing.expect(t, workbench_sync_test_visible(ctx, "Nothing staged in"))
+	testing.expect(t, workbench_sync_test_visible(ctx, "Applies to the viewed file"))
 
 	// Without checks, Stage acts on the viewed file only.
-	gitaris_changes_test_click(t, ctx, &state, &mono, "Stage", w, scale)
+	workbench_changes_test_click(t, ctx, &state, &mono, "Stage", w, scale)
 	testing.expect(t, state.error == "" && changes.files[0].staged && !changes.files[1].staged)
-	gitaris_changes_test_click(t, ctx, &state, &mono, "Unstage", w, scale)
+	workbench_changes_test_click(t, ctx, &state, &mono, "Unstage", w, scale)
 	testing.expect(t, state.error == "" && !changes.files[0].staged)
 
 	// Checking rows never changes the viewed file; Stage acts on the checked files.
-	gitaris_stage_test_check(t, ctx, &state, &mono, "second.txt", w, scale)
-	gitaris_stage_test_check(t, ctx, &state, &mono, "third.txt", w, scale)
+	workbench_stage_test_check(t, ctx, &state, &mono, "second.txt", w, scale)
+	workbench_stage_test_check(t, ctx, &state, &mono, "third.txt", w, scale)
 	testing.expect(t, changes.file.index == 0 && !changes.files[0].selected && changes.files[1].selected && changes.files[2].selected)
-	testing.expect(t, gitaris_sync_test_visible(ctx, "Applies to 2 checked files"))
-	gitaris_changes_test_click(t, ctx, &state, &mono, "Stage", w, scale)
+	testing.expect(t, workbench_sync_test_visible(ctx, "Applies to 2 checked files"))
+	workbench_changes_test_click(t, ctx, &state, &mono, "Stage", w, scale)
 	testing.expect(t, state.error == "" && !changes.files[0].staged && changes.files[1].staged && changes.files[2].staged)
-	testing.expect(t, gitaris_sync_test_visible(ctx, "2 staged · into"))
+	testing.expect(t, workbench_sync_test_visible(ctx, "2 staged · into"))
 
 	// An empty message is refused; a typed one commits only the staged files.
-	gitaris_changes_test_click(t, ctx, &state, &mono, "Commit", w, scale)
+	workbench_changes_test_click(t, ctx, &state, &mono, "Commit", w, scale)
 	testing.expect(t, state.error == "Enter a commit message.")
-	gitaris_changes_test_click(t, ctx, &state, &mono, "Commit message · first line is the summary", w, scale)
+	workbench_changes_test_click(t, ctx, &state, &mono, "Commit message · first line is the summary", w, scale)
 	ui.input_text(ctx, "Update second and third")
-	gitaris_changes_test_frame(ctx, &state, &mono, w, scale)
+	workbench_changes_test_frame(ctx, &state, &mono, w, scale)
 	testing.expect(t, strings.to_string(state.commit_message) == "Update second and third")
-	gitaris_changes_test_click(t, ctx, &state, &mono, "Commit", w, scale)
+	workbench_changes_test_click(t, ctx, &state, &mono, "Commit", w, scale)
 	testing.expect(t, state.error == "" && strings.has_prefix(state.notice, "Committed to ") && strings.has_suffix(state.notice, ": Update second and third"))
 	testing.expect(t, len(state.commit_message.buf) == 0)
 	if !testing.expect(t, changes.working && len(changes.files) == 1) do return

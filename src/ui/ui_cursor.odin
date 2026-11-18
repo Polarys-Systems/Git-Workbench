@@ -1,5 +1,7 @@
 package ui
 
+// Which mouse cursor the UI wants for the element under the pointer.
+
 UiCursor :: enum { DEFAULT, POINTER, TEXT, PROGRESS }
 
 // Resolve against this frame's clipped draw order. Decorative labels over a

@@ -1,5 +1,7 @@
 package gpu
 
+// Command buffers: recording, submission, waiting and image layout transitions.
+
 import "core:math"
 import vk "vendor:vulkan"
 

@@ -1,5 +1,8 @@
 package app
 
+// Turns the UI's boxes into GPU geometry: rectangles, rounded rectangles,
+// lines and text, all in one batch.
+
 import "core:strings"
 
 import "../font"

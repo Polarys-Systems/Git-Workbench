@@ -1,5 +1,7 @@
 package workspace
 
+// Commit graph layout: assigns each commit a lane and the edges to its parents.
+
 import git "../git"
 
 Graph_Edge :: struct {

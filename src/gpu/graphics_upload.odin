@@ -1,5 +1,7 @@
 package gpu
 
+// Staging uploads of buffer and texture data to the GPU.
+
 import "core:mem"
 import vk "vendor:vulkan"
 

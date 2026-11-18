@@ -1,5 +1,7 @@
 package git
 
+// libgit2 diff and patch types.
+
 import "core:c"
 
 Diff :: struct {}

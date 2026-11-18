@@ -1,5 +1,7 @@
 package app
 
+// Translates SDL3 events (mouse, keyboard, text input) into UI input.
+
 import SDL "vendor:sdl3"
 import "../ui"
 
@@ -63,7 +65,7 @@ input_process_sdl_event :: proc(ctx: ^ui.UiContext, event: ^SDL.Event, scale: f3
 input_focus_next :: proc(ctx: ^ui.UiContext, reverse := false) {
 	boxes := ui.elements(ctx)
 	// An open dialog keeps focus to itself.
-	if gitaris_modal_first_box >= 0 && gitaris_modal_first_box < len(boxes) do boxes = boxes[gitaris_modal_first_box:]
+	if workbench_modal_first_box >= 0 && workbench_modal_first_box < len(boxes) do boxes = boxes[workbench_modal_first_box:]
 	current := reverse ? 0 : len(boxes) - 1
 	for box, i in boxes do if box.id == ctx.focus_id do current = i
 	for step in 1..=len(boxes) {

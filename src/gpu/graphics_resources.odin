@@ -1,5 +1,7 @@
 package gpu
 
+// Descriptor (binding) layouts and resource sets.
+
 import vk "vendor:vulkan"
 
 @(private = "package")
@@ -189,7 +191,10 @@ update_resources :: proc(device: ^Device, writes: []Binding_Write) -> Result {
 					uniform ? device.properties.limits.minUniformBufferOffsetAlignment : device.properties.limits.minStorageBufferOffsetAlignment
 				max_size :=
 					uniform ? device.properties.limits.maxUniformBufferRange : device.properties.limits.maxStorageBufferRange
-				if buffer == nil || buffer.owner != device.device || buffer.buffer == 0 || buffer.usage & usage == {} || value.size == 0 || value.size > vk.DeviceSize(max_size) || value.offset % alignment != 0 do return .ERROR_INVALID_ARGUMENT
+				// The buffer must belong to this device and allow this kind of binding,
+				// and the bound range must fit the device's size and alignment limits.
+				if buffer == nil || buffer.owner != device.device || buffer.buffer == 0 || buffer.usage & usage == {} do return .ERROR_INVALID_ARGUMENT
+				if value.size == 0 || value.size > vk.DeviceSize(max_size) || value.offset % alignment != 0 do return .ERROR_INVALID_ARGUMENT
 				if value.offset > buffer.size || value.size > buffer.size - value.offset do return .OUT_OF_RANGE
 				buffers[used] = {buffer.buffer, value.offset, value.size}
 			} else {

@@ -1,5 +1,7 @@
 package xlsx
 
+// Minimal ZIP writer (stored entries only), used by tests to build workbooks.
+
 import "core:bytes"
 import "core:hash"
 

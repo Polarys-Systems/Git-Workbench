@@ -1,5 +1,7 @@
 package workspace
 
+// Merge conflict resolution: conflicted files, their hunks, and saving a choice.
+
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
@@ -216,7 +218,7 @@ save_merge_file :: proc(model: ^Model) -> string {
 
 	// Replace only after a complete write so an I/O failure cannot truncate the
 	// conflicted file. Keep its permissions, including executable bits on Unix.
-	temporary, create_err := os.create_temp_file(filepath.dir(path), ".gitaris-merge-*.tmp")
+	temporary, create_err := os.create_temp_file(filepath.dir(path), ".workbench-merge-*.tmp")
 	if create_err != nil do return fmt.tprintf("Could not create the merge result: %v", create_err)
 	temp_path := strings.clone(os.name(temporary), context.temp_allocator)
 	defer _ = os.remove(temp_path)

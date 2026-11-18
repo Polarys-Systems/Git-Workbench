@@ -48,5 +48,5 @@ known_hosts_files_are_read_from_each_ssh_folder :: proc(t: ^testing.T) {
 	testing.expect(t, known_hosts_check_files({empty, trusted}, "github.com", key) == .MATCH)
 	// Outside WSL there are no Linux .ssh folders to consult.
 	testing.expect(t, len(wsl_ssh_dirs(`C:\devel\project`)) == 0)
-	testing.expect(t, len(wsl_ssh_dirs(`\\wsl.localhost\NoSuchDistribution-gitaris\home\ada\project`)) == 0)
+	testing.expect(t, len(wsl_ssh_dirs(`\\wsl.localhost\NoSuchDistribution-workbench\home\ada\project`)) == 0)
 }

@@ -1,5 +1,7 @@
 package git
 
+// Foreign procedure declarations for libgit2 (see README.md in this folder).
+
 import "core:c"
 
 when ODIN_OS == .Windows {

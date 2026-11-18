@@ -1,5 +1,7 @@
 package workspace
 
+// Reads Git LFS pointer files and resolves them to the downloaded object.
+
 import "core:fmt"
 import "core:os"
 import "core:strconv"

@@ -1,5 +1,7 @@
 package workspace
 
+// Changes of a commit or of the working tree: changed files and per-file diff lines.
+
 import "core:c"
 import "core:fmt"
 import "core:os"

@@ -1,5 +1,7 @@
 package ui
 
+// Small easing animations for colors and values (UI_Anim_Float).
+
 import "core:math"
 
 /*

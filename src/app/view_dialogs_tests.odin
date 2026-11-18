@@ -33,39 +33,39 @@ dialogs_test_workbook :: proc(rows: []string) -> []u8 {
 
 // Clicks the topmost element showing `text` (dialogs sit above the view).
 @(private = "file")
-dialogs_test_click :: proc(t: ^testing.T, ctx: ^ui.UiContext, state: ^Gitaris, mono: ^font_core.Face, text: string, w, scale: f32, loc := #caller_location) {
-	gitaris_changes_test_frame(ctx, state, mono, w, scale)
+dialogs_test_click :: proc(t: ^testing.T, ctx: ^ui.UiContext, state: ^Workbench, mono: ^font_core.Face, text: string, w, scale: f32, loc := #caller_location) {
+	workbench_changes_test_frame(ctx, state, mono, w, scale)
 	boxes := ui.elements(ctx)
 	#reverse for box in boxes {
 		if strings.to_string(box.text) != text || box.boundary_rect.height <= 0 do continue
 		rect := box.boundary_rect
 		ui.input_mouse_move(ctx, rect.x + rect.width * 0.5, rect.y + rect.height * 0.5)
 		ui.input_mouse_button(ctx, .LEFT, true)
-		gitaris_changes_test_frame(ctx, state, mono, w, scale)
+		workbench_changes_test_frame(ctx, state, mono, w, scale)
 		ui.input_mouse_button(ctx, .LEFT, false)
-		gitaris_changes_test_frame(ctx, state, mono, w, scale)
-		gitaris_changes_test_frame(ctx, state, mono, w, scale)
+		workbench_changes_test_frame(ctx, state, mono, w, scale)
+		workbench_changes_test_frame(ctx, state, mono, w, scale)
 		return
 	}
 	testing.expectf(t, false, "Visible text not found: %s", text, loc = loc)
 }
 
 @(private = "file")
-dialogs_test_type :: proc(ctx: ^ui.UiContext, state: ^Gitaris, mono: ^font_core.Face, text: string, w, scale: f32) {
+dialogs_test_type :: proc(ctx: ^ui.UiContext, state: ^Workbench, mono: ^font_core.Face, text: string, w, scale: f32) {
 	ui.input_text(ctx, text)
-	gitaris_changes_test_frame(ctx, state, mono, w, scale)
+	workbench_changes_test_frame(ctx, state, mono, w, scale)
 	// Labels drawn before the field show the text from the next frame.
-	gitaris_changes_test_frame(ctx, state, mono, w, scale)
+	workbench_changes_test_frame(ctx, state, mono, w, scale)
 }
 
 @(private = "file")
-dialogs_test_key :: proc(ctx: ^ui.UiContext, state: ^Gitaris, mono: ^font_core.Face, key: ui.Key, w, scale: f32, ctrl := false) {
+dialogs_test_key :: proc(ctx: ^ui.UiContext, state: ^Workbench, mono: ^font_core.Face, key: ui.Key, w, scale: f32, ctrl := false) {
 	if ctrl do ui.input_key(ctx, .CTRL, true)
 	ui.input_key(ctx, key, true, true)
-	gitaris_changes_test_frame(ctx, state, mono, w, scale)
+	workbench_changes_test_frame(ctx, state, mono, w, scale)
 	ui.input_key(ctx, key, false)
 	if ctrl do ui.input_key(ctx, .CTRL, false)
-	gitaris_changes_test_frame(ctx, state, mono, w, scale)
+	workbench_changes_test_frame(ctx, state, mono, w, scale)
 }
 
 @(test)
@@ -73,7 +73,7 @@ workbook_grid_branch_tag_and_commit_editor :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
 	if !testing.expect(t, git.libgit2_init() > 0) do return
 	defer _ = git.libgit2_shutdown()
-	root, err := os.make_directory_temp("", "gitaris-dialogs-ui-*", context.allocator)
+	root, err := os.make_directory_temp("", "workbench-dialogs-ui-*", context.allocator)
 	if !testing.expect(t, err == nil) do return
 	defer delete(root)
 	defer _ = os.remove_all(root)
@@ -101,8 +101,8 @@ workbook_grid_branch_tag_and_commit_editor :: proc(t: ^testing.T) {
 	_, result = git.commit(repo, "Update budget", &options)
 	if !testing.expect(t, result == git.OK) do return
 
-	state := Gitaris{ready = true, search = strings.builder_make()}
-	defer gitaris_destroy(&state)
+	state := Workbench{ready = true, search = strings.builder_make()}
+	defer workbench_destroy(&state)
 	if !testing.expect(t, workspace.open(&state.model, {root, root, "Committer", "committer@example.invalid"}) == "") do return
 	ctx := ui.init()
 	defer ui.destroy(ctx)
@@ -113,29 +113,29 @@ workbook_grid_branch_tag_and_commit_editor :: proc(t: ^testing.T) {
 	dialogs_test_click(t, ctx, &state, &mono, "Update budget", w, scale)
 	if !testing.expect(t, workspace.changes_open(state.model.changes) && len(state.model.changes.file.grid.sheets) == 1) do return
 	for text in ([]string{"A", "B", "Budget", "Travel", "350", "Changed rows only", "+1  −0  ~1 rows"}) {
-		testing.expectf(t, gitaris_sync_test_visible(ctx, text), "grid shows %s", text)
+		testing.expectf(t, workbench_sync_test_visible(ctx, text), "grid shows %s", text)
 	}
-	testing.expect(t, gitaris_sync_test_visible(ctx, "Select a cell"))
+	testing.expect(t, workbench_sync_test_visible(ctx, "Select a cell"))
 	// Step to the first change; the formula bar explains it.
 	dialogs_test_click(t, ctx, &state, &mono, "↓", w, scale)
-	testing.expect(t, state.grid.row == 1 && gitaris_sync_test_visible(ctx, "Row added in this version"))
+	testing.expect(t, state.grid.row == 1 && workbench_sync_test_visible(ctx, "Row added in this version"))
 	dialogs_test_click(t, ctx, &state, &mono, "↓", w, scale)
-	testing.expect(t, state.grid.row == 3 && state.grid.col == 2 && gitaris_sync_test_visible(ctx, "Was:  300"))
-	testing.expect(t, gitaris_sync_test_visible(ctx, "Change 2 of 2"))
+	testing.expect(t, state.grid.row == 3 && state.grid.col == 2 && workbench_sync_test_visible(ctx, "Was:  300"))
+	testing.expect(t, workbench_sync_test_visible(ctx, "Change 2 of 2"))
 	// Arrow keys continue from the selection.
 	dialogs_test_key(ctx, &state, &mono, .LEFT, w, scale)
-	testing.expect(t, state.grid.col == 1 && gitaris_sync_test_visible(ctx, "Unchanged cell in a changed row"))
+	testing.expect(t, state.grid.col == 1 && workbench_sync_test_visible(ctx, "Unchanged cell in a changed row"))
 	// The row-by-row text is one click away.
 	dialogs_test_click(t, ctx, &state, &mono, "Text", w, scale)
-	testing.expect(t, gitaris_sync_test_visible(ctx, "Food | 350"))
+	testing.expect(t, workbench_sync_test_visible(ctx, "Food | 350"))
 	dialogs_test_click(t, ctx, &state, &mono, "Grid", w, scale)
-	testing.expect(t, !gitaris_sync_test_visible(ctx, "Food | 350"))
+	testing.expect(t, !workbench_sync_test_visible(ctx, "Food | 350"))
 
 	// New branch at this commit, checked out.
 	dialogs_test_click(t, ctx, &state, &mono, "Branch…", w, scale)
-	if !testing.expect(t, state.dialog == .BRANCH && gitaris_sync_test_visible(ctx, "New branch")) do return
+	if !testing.expect(t, state.dialog == .BRANCH && workbench_sync_test_visible(ctx, "New branch")) do return
 	dialogs_test_type(ctx, &state, &mono, "bad name", w, scale)
-	testing.expect(t, gitaris_sync_test_visible(ctx, "cannot contain spaces"))
+	testing.expect(t, workbench_sync_test_visible(ctx, "cannot contain spaces"))
 	strings.builder_reset(&state.dialog_name)
 	dialogs_test_type(ctx, &state, &mono, "feature/grid", w, scale)
 	dialogs_test_click(t, ctx, &state, &mono, "Create branch", w, scale)
@@ -150,13 +150,13 @@ workbook_grid_branch_tag_and_commit_editor :: proc(t: ^testing.T) {
 	dialogs_test_type(ctx, &state, &mono, "v1.0", w, scale)
 	dialogs_test_key(ctx, &state, &mono, .RETURN, w, scale)
 	testing.expectf(t, state.dialog == .NONE && len(state.model.tags) == 1, "dialog error: %s", state.dialog_error)
-	testing.expect(t, state.model.commits[0].tags == "v1.0" && gitaris_sync_test_visible(ctx, "v1.0"))
+	testing.expect(t, state.model.commits[0].tags == "v1.0" && workbench_sync_test_visible(ctx, "v1.0"))
 	// Choosing the tag scopes the history; deleting asks twice.
 	// The sidebar row (drawn before the chip on the commit row).
-	gitaris_changes_test_click(t, ctx, &state, &mono, "v1.0", w, scale)
+	workbench_changes_test_click(t, ctx, &state, &mono, "v1.0", w, scale)
 	testing.expect(t, state.model.scoped_tag == "v1.0")
 	dialogs_test_click(t, ctx, &state, &mono, "Delete", w, scale)
-	testing.expect(t, len(state.model.tags) == 1 && gitaris_sync_test_visible(ctx, "Confirm delete"))
+	testing.expect(t, len(state.model.tags) == 1 && workbench_sync_test_visible(ctx, "Confirm delete"))
 	dialogs_test_click(t, ctx, &state, &mono, "Confirm delete", w, scale)
 	testing.expect(t, len(state.model.tags) == 0 && state.model.scoped_tag == "")
 
@@ -166,9 +166,9 @@ workbook_grid_branch_tag_and_commit_editor :: proc(t: ^testing.T) {
 	dialogs_test_click(t, ctx, &state, &mono, "Stage", w, scale)
 	dialogs_test_click(t, ctx, &state, &mono, "Editor", w, scale)
 	if !testing.expect(t, state.dialog == .COMMIT) do return
-	testing.expect(t, gitaris_sync_test_visible(ctx, "Commits 1 staged file as Committer"))
+	testing.expect(t, workbench_sync_test_visible(ctx, "Commits 1 staged file as Committer"))
 	dialogs_test_type(ctx, &state, &mono, "Add notes", w, scale)
-	testing.expect(t, gitaris_sync_test_visible(ctx, "9 / 72"))
+	testing.expect(t, workbench_sync_test_visible(ctx, "9 / 72"))
 	dialogs_test_key(ctx, &state, &mono, .RETURN, w, scale)
 	dialogs_test_type(ctx, &state, &mono, "Why: keep track.", w, scale)
 	// Esc keeps the draft in the inline box; reopening restores both parts.

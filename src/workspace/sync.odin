@@ -1,5 +1,8 @@
 package workspace
 
+// Network operations (fetch, pull, push, submodule update) run on a background
+// thread, plus the branch's upstream status (ahead/behind).
+
 import "base:runtime"
 import "core:c"
 import "core:encoding/base64"

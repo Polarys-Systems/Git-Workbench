@@ -1,5 +1,7 @@
 package git
 
+// libgit2 submodule types and procedures.
+
 import "core:c"
 
 when ODIN_OS == .Windows {

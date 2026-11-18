@@ -1,5 +1,7 @@
 package app
 
+// Native mouse cursor (arrow, hand, I-beam, progress) chosen by the UI.
+
 import "../ui"
 import SDL "vendor:sdl3"
 

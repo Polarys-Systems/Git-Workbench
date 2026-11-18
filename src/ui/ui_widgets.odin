@@ -1,5 +1,8 @@
 package ui
 
+// Widgets built on boxes: button, label, check box and the text inputs
+// (single line, multi-line editor, secret/password box).
+
 import "core:strings"
 import "core:unicode/utf8"
 
@@ -249,6 +252,10 @@ caret_view_offset :: proc(box: ^UiBox, view: [2]f32, multiline: bool) -> [2]f32 
 	return {max(0, box._caret_offset.x - view.x), multiline ? max(0, box._caret_offset.y + box.style.font_size - view.y) : 0}
 }
 
+// The editable text field behind input_box, textbox, text_editor and
+// secret_box. One call per frame: handles the mouse and keyboard while
+// focused, keeps the caret in view, and lays out caret and selection.
+// `scroll`, when given, stores the scroll position between frames.
 @(private)
 edit_box :: proc(self: ^UiContext, id: string, value: ^strings.Builder, rect: Rect2d, multiline: bool,
 	masked := false, tabs := false, scroll: ^[2]f32 = nil) -> (result: UiResult, content, view: [2]f32) {
@@ -256,11 +263,15 @@ edit_box :: proc(self: ^UiContext, id: string, value: ^strings.Builder, rect: Re
 	align := multiline ? UiAlignments{.TOP} : UiAlignments{.NONE}
 	box := new_box(self, shown_text(value, masked), align, {.HOVERABLE, .CLICKABLE, .EDITABLE}, rect, id)
 	pad := max(0, box.style.padding)
+	// The visible text area inside the padding.
 	view = {max(0, box.rect.width - 2 * pad - 1), max(0, box.rect.height - 2 * pad)}
 	if !box.focused && self.edit_id == box.id do self.edit_id = 0
 	// Focus that just arrived, or a caret the application moved, starts
 	// without a selection and brings the caret into view.
 	external := box.focused && (self.edit_id != box.id || self.edit_caret != self.caret)
+
+	// How far the text is scrolled: from the caller's storage (moved by the
+	// mouse wheel), or else following the caret.
 	offset: [2]f32
 	if scroll != nil {
 		offset = scroll^
@@ -272,91 +283,19 @@ edit_box :: proc(self: ^UiContext, id: string, value: ^strings.Builder, rect: Re
 	} else if box.focused && self.edit_id == box.id {
 		offset = caret_view_offset(box, view, multiline)
 	}
+
 	start_caret := self.caret
 	if box.focused {
 		if external do self.anchor = self.caret
 		self.caret = rune_floor(value.buf[:], self.caret)
 		self.anchor = rune_floor(value.buf[:], self.anchor)
 		start_caret = self.caret
-		keys, down := &self.input.key_pressed, &self.input.key_down
-		if box.active && self.active_button == .LEFT && self.input.mouse_down[.LEFT] {
-			hit := len(value.buf)
-			if !masked do hit = caret_from_point(self, box, value.buf[:], self.mouse_pos - (box.text_pos - offset), multiline)
-			if box.result == .PRESSED && (external || !down[.SHIFT]) do self.anchor = hit
-			self.caret = hit
-		}
-		if keys[.ESCAPE] {
+		edit_mouse(self, box, value.buf[:], offset, multiline, masked, external)
+		if self.input.key_pressed[.ESCAPE] {
 			self.focus_id = 0
 			box.focused = false
 		} else {
-			text := value.buf[:]
-			selected := self.anchor != self.caret
-			first, last := min(self.anchor, self.caret), max(self.anchor, self.caret)
-			moved := false
-			if keys[.LEFT] {
-				self.caret = selected && !down[.SHIFT] ? first : previous_rune(text, self.caret)
-				moved = true
-			}
-			if keys[.RIGHT] {
-				self.caret = selected && !down[.SHIFT] ? last : next_rune(text, self.caret)
-				moved = true
-			}
-			if keys[.HOME] {
-				self.caret = down[.CTRL] ? 0 : line_start(text, self.caret)
-				moved = true
-			}
-			if keys[.END] {
-				self.caret = down[.CTRL] ? len(text) : line_end(text, self.caret)
-				moved = true
-			}
-			if multiline {
-				if keys[.UP] do self.caret = move_lines(text, self.caret, -1)
-				if keys[.DOWN] do self.caret = move_lines(text, self.caret, 1)
-				if keys[.PAGE_UP] || keys[.PAGE_DOWN] {
-					page := max(1, int(view.y / box_line_height(self, box)) - 1)
-					self.caret = move_lines(text, self.caret, keys[.PAGE_UP] ? -page : page)
-				}
-				moved = moved || keys[.UP] || keys[.DOWN] || keys[.PAGE_UP] || keys[.PAGE_DOWN]
-			}
-			if moved && !down[.SHIFT] do self.anchor = self.caret
-			if down[.CTRL] && keys[.A] do self.anchor, self.caret = 0, len(text)
-			selected = self.anchor != self.caret
-			first, last = min(self.anchor, self.caret), max(self.anchor, self.caret)
-			cut := down[.CTRL] && keys[.X] && !masked
-			if down[.CTRL] && (keys[.C] || cut) && selected && !masked {
-				strings.builder_reset(&self.clipboard)
-				strings.write_string(&self.clipboard, string(text[first:last]))
-				self.clipboard_pending = true
-			}
-			modified := false
-			// Typing, pasting, Enter, Backspace, Delete and cut replace a selection.
-			if selected && (len(self.input.text.buf) > 0 || keys[.BACKSPACE] || keys[.DELETE] || cut || (multiline && keys[.RETURN])) {
-				erase_text(value, first, last)
-				self.caret = first
-				modified = true
-			} else {
-				if keys[.BACKSPACE] && self.caret > 0 {
-					start := previous_rune(value.buf[:], self.caret)
-					erase_text(value, start, self.caret)
-					self.caret = start
-					modified = true
-				}
-				if keys[.DELETE] && self.caret < len(value.buf) {
-					erase_text(value, self.caret, next_rune(value.buf[:], self.caret))
-					modified = true
-				}
-			}
-			inserted, newline := insert_input(self, value, multiline)
-			modified = modified || inserted
-			if keys[.RETURN] && multiline && !newline {
-				insert_text(value, &self.caret, []u8{'\n'})
-				modified = true
-			}
-			if modified {
-				box.result = .MODIFIED
-				self.anchor = self.caret
-			}
-			if keys[.RETURN] && !multiline do box.result = .SUBMIT
+			edit_keys(self, box, value, view, multiline, masked)
 			cache_text(self, box, shown_text(value, masked))
 			position_text(box)
 		}
@@ -369,15 +308,11 @@ edit_box :: proc(self: ^UiContext, id: string, value: ^strings.Builder, rect: Re
 			box._caret = self.caret
 		}
 	}
+
 	content = box.text_size + {1, 0}
 	if scroll != nil {
 		if box.focused && (external || self.caret != start_caret || box.result == .MODIFIED) {
-			// Scroll just enough to show the caret.
-			caret, line_height := box._caret_offset, box_line_height(self, box)
-			if caret.x < offset.x do offset.x = caret.x
-			if caret.x + 1 > offset.x + view.x do offset.x = caret.x + 1 - view.x
-			if caret.y < offset.y do offset.y = caret.y
-			if caret.y + line_height > offset.y + view.y do offset.y = caret.y + line_height - view.y
+			offset = scroll_to_caret(offset, box._caret_offset, box_line_height(self, box), view)
 		}
 		offset.x = clamp(offset.x, 0, max(0, content.x - view.x))
 		offset.y = clamp(offset.y, 0, max(0, content.y - view.y))
@@ -389,33 +324,146 @@ edit_box :: proc(self: ^UiContext, id: string, value: ^strings.Builder, rect: Re
 	}
 	box.scroll_offset = offset
 	box.text_pos -= offset
+
 	if box.focused {
 		box.caret_rect = {box.text_pos.x + box._caret_offset.x, box.text_pos.y + box._caret_offset.y, 1, box.style.font_size}
-		if self.anchor != self.caret {
-			line_height := box_line_height(self, box)
-			if box._anchor != self.anchor {
-				// Lines between the two ends are counted from the caret's line,
-				// so a selection costs its own length, not the document's.
-				caret_line := int(box._caret_offset.y / line_height + 0.5)
-				between := count_lines(value.buf[min(self.anchor, self.caret):max(self.anchor, self.caret)])
-				line := self.anchor < self.caret ? caret_line - between : caret_line + between
-				box._anchor_offset = text_offset(self, box, value.buf[:], self.anchor, line, masked)
-				box._anchor = self.anchor
-			}
-			from, to := box._anchor_offset, box._caret_offset
-			if self.anchor > self.caret do from, to = to, from
-			origin := box.text_pos
-			if from.y == to.y {
-				box.selection_rects[0] = {origin.x + from.x, origin.y + from.y, to.x - from.x, line_height}
-			} else {
-				right := box.rect.x + box.rect.width - pad
-				box.selection_rects[0] = {origin.x + from.x, origin.y + from.y, max(0, right - origin.x - from.x), line_height}
-				box.selection_rects[1] = {origin.x, origin.y + from.y + line_height, max(0, right - origin.x), to.y - from.y - line_height}
-				box.selection_rects[2] = {origin.x, origin.y + to.y, to.x, line_height}
-			}
-		}
+		if self.anchor != self.caret do edit_selection_rects(self, box, value.buf[:], masked, pad)
 		self.edit_id, self.edit_caret = box.id, self.caret
 	}
 	highlight(box)
 	return box.result, content, view
+}
+
+// Pressing places the caret (and starts a new selection, unless Shift is
+// held); dragging extends the selection.
+@(private)
+edit_mouse :: proc(self: ^UiContext, box: ^UiBox, text: []u8, offset: [2]f32, multiline, masked, external: bool) {
+	if !(box.active && self.active_button == .LEFT && self.input.mouse_down[.LEFT]) do return
+	// Hidden characters have no positions to click; a masked field puts the caret at the end.
+	hit := len(text)
+	if !masked do hit = caret_from_point(self, box, text, self.mouse_pos - (box.text_pos - offset), multiline)
+	if box.result == .PRESSED && (external || !self.input.key_down[.SHIFT]) do self.anchor = hit
+	self.caret = hit
+}
+
+// Keyboard editing: caret movement and selection, the clipboard, deleting,
+// typing and Enter. Sets box.result to MODIFIED or SUBMIT.
+@(private)
+edit_keys :: proc(self: ^UiContext, box: ^UiBox, value: ^strings.Builder, view: [2]f32, multiline, masked: bool) {
+	keys, down := &self.input.key_pressed, &self.input.key_down
+	if edit_move_caret(self, box, value.buf[:], view, multiline) && !down[.SHIFT] do self.anchor = self.caret
+	if down[.CTRL] && keys[.A] do self.anchor, self.caret = 0, len(value.buf)
+
+	selected := self.anchor != self.caret
+	first, last := min(self.anchor, self.caret), max(self.anchor, self.caret)
+	// Copying or cutting a hidden password is not allowed.
+	cut := down[.CTRL] && keys[.X] && !masked
+	if down[.CTRL] && (keys[.C] || cut) && selected && !masked {
+		strings.builder_reset(&self.clipboard)
+		strings.write_string(&self.clipboard, string(value.buf[first:last]))
+		self.clipboard_pending = true
+	}
+
+	modified := false
+	// Typing, pasting, Enter, Backspace, Delete and cut replace a selection.
+	replaces_selection := len(self.input.text.buf) > 0 || keys[.BACKSPACE] || keys[.DELETE] || cut || (multiline && keys[.RETURN])
+	if selected && replaces_selection {
+		erase_text(value, first, last)
+		self.caret = first
+		modified = true
+	} else {
+		if keys[.BACKSPACE] && self.caret > 0 {
+			start := previous_rune(value.buf[:], self.caret)
+			erase_text(value, start, self.caret)
+			self.caret = start
+			modified = true
+		}
+		if keys[.DELETE] && self.caret < len(value.buf) {
+			erase_text(value, self.caret, next_rune(value.buf[:], self.caret))
+			modified = true
+		}
+	}
+	inserted, newline := insert_input(self, value, multiline)
+	modified = modified || inserted
+	if keys[.RETURN] && multiline && !newline {
+		insert_text(value, &self.caret, []u8{'\n'})
+		modified = true
+	}
+	if modified {
+		box.result = .MODIFIED
+		self.anchor = self.caret
+	}
+	if keys[.RETURN] && !multiline do box.result = .SUBMIT
+}
+
+// Left/Right, Home/End (Ctrl: whole text) and, when multi-line, Up/Down and
+// PageUp/PageDown. Left/Right with a selection and no Shift jump to its
+// edge. Returns whether a key moved the caret.
+@(private)
+edit_move_caret :: proc(self: ^UiContext, box: ^UiBox, text: []u8, view: [2]f32, multiline: bool) -> (moved: bool) {
+	keys, down := &self.input.key_pressed, &self.input.key_down
+	selected := self.anchor != self.caret
+	first, last := min(self.anchor, self.caret), max(self.anchor, self.caret)
+	if keys[.LEFT] {
+		self.caret = selected && !down[.SHIFT] ? first : previous_rune(text, self.caret)
+		moved = true
+	}
+	if keys[.RIGHT] {
+		self.caret = selected && !down[.SHIFT] ? last : next_rune(text, self.caret)
+		moved = true
+	}
+	if keys[.HOME] {
+		self.caret = down[.CTRL] ? 0 : line_start(text, self.caret)
+		moved = true
+	}
+	if keys[.END] {
+		self.caret = down[.CTRL] ? len(text) : line_end(text, self.caret)
+		moved = true
+	}
+	if !multiline do return
+	if keys[.UP] do self.caret = move_lines(text, self.caret, -1)
+	if keys[.DOWN] do self.caret = move_lines(text, self.caret, 1)
+	if keys[.PAGE_UP] || keys[.PAGE_DOWN] {
+		page := max(1, int(view.y / box_line_height(self, box)) - 1)
+		self.caret = move_lines(text, self.caret, keys[.PAGE_UP] ? -page : page)
+	}
+	return moved || keys[.UP] || keys[.DOWN] || keys[.PAGE_UP] || keys[.PAGE_DOWN]
+}
+
+// The smallest change to `offset` that shows the caret inside `view`.
+@(private)
+scroll_to_caret :: proc(offset, caret: [2]f32, line_height: f32, view: [2]f32) -> [2]f32 {
+	offset := offset
+	if caret.x < offset.x do offset.x = caret.x
+	if caret.x + 1 > offset.x + view.x do offset.x = caret.x + 1 - view.x
+	if caret.y < offset.y do offset.y = caret.y
+	if caret.y + line_height > offset.y + view.y do offset.y = caret.y + line_height - view.y
+	return offset
+}
+
+// Up to three rectangles covering the selection: the rest of the first line,
+// the full lines between, and the start of the last line.
+@(private)
+edit_selection_rects :: proc(self: ^UiContext, box: ^UiBox, text: []u8, masked: bool, pad: f32) {
+	line_height := box_line_height(self, box)
+	if box._anchor != self.anchor {
+		// Lines between the two ends are counted from the caret's line,
+		// so a selection costs its own length, not the document's.
+		caret_line := int(box._caret_offset.y / line_height + 0.5)
+		between := count_lines(text[min(self.anchor, self.caret):max(self.anchor, self.caret)])
+		line := self.anchor < self.caret ? caret_line - between : caret_line + between
+		box._anchor_offset = text_offset(self, box, text, self.anchor, line, masked)
+		box._anchor = self.anchor
+	}
+	from, to := box._anchor_offset, box._caret_offset
+	if self.anchor > self.caret do from, to = to, from
+	origin := box.text_pos
+	if from.y == to.y {
+		box.selection_rects[0] = {origin.x + from.x, origin.y + from.y, to.x - from.x, line_height}
+		return
+	}
+	right := box.rect.x + box.rect.width - pad
+	box.selection_rects[0] = {origin.x + from.x, origin.y + from.y, max(0, right - origin.x - from.x), line_height}
+	box.selection_rects[1] = {origin.x, origin.y + from.y + line_height, max(0, right - origin.x), to.y - from.y - line_height}
+	box.selection_rects[2] = {origin.x, origin.y + to.y, to.x, line_height}
 }

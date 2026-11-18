@@ -1,5 +1,8 @@
 package ui
 
+// Core types of the immediate-mode UI (boxes, windows, layouts, styles,
+// the UiContext) and the per-frame begin/end and window handling.
+
 import "base:runtime"
 import "core:strings"
 

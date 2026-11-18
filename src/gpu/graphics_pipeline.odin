@@ -1,5 +1,7 @@
 package gpu
 
+// Graphics pipelines and draw-time state: binding, push constants, depth/stencil and draws.
+
 import "core:mem"
 import vk "vendor:vulkan"
 
@@ -379,7 +381,8 @@ bind_vertex_buffer :: proc(
 ) -> Result {
 	if command == nil do return .ERROR_INVALID_ARGUMENT
 	if !command_recording(command) do return .ERROR_STATE
-	if buffer == nil || buffer.owner != command.device.device || .VERTEX_BUFFER not_in buffer.usage || offset >= buffer.size || binding >= command.device.properties.limits.maxVertexInputBindings do return .ERROR_INVALID_ARGUMENT
+	if buffer == nil || buffer.owner != command.device.device || .VERTEX_BUFFER not_in buffer.usage do return .ERROR_INVALID_ARGUMENT
+	if offset >= buffer.size || binding >= command.device.properties.limits.maxVertexInputBindings do return .ERROR_INVALID_ARGUMENT
 	buffer_offset := offset
 	vk.CmdBindVertexBuffers(command.command, binding, 1, &buffer.buffer, &buffer_offset)
 	return .NONE

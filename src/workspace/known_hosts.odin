@@ -1,5 +1,7 @@
 package workspace
 
+// Checks a server's SSH host key against the user's known_hosts files.
+
 import "core:crypto/hash"
 import "core:crypto/hmac"
 import "core:encoding/base64"

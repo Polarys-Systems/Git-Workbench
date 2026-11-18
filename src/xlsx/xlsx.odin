@@ -1,5 +1,8 @@
 package xlsx
 
+// Reads Excel workbooks (.xlsx and friends) and converts their cells to text
+// so Git versions can be compared.
+
 import "base:runtime"
 import "core:mem/virtual"
 import "core:strconv"

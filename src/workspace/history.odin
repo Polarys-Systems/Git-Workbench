@@ -1,5 +1,7 @@
 package workspace
 
+// The open repository (Model): opening it, branches, and paginated commit history.
+
 import "core:c"
 import "core:fmt"
 import "core:os"

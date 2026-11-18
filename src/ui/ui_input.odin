@@ -1,5 +1,7 @@
 package ui
 
+// Input state fed in by the platform layer each frame, and hit testing.
+
 import "core:strings"
 
 Mouse_Button :: enum { LEFT, RIGHT, MIDDLE }

@@ -1,5 +1,7 @@
 package workspace
 
+// Windows side of WSL support: lists the installed distributions.
+
 import win "core:sys/windows"
 
 // Installed WSL distributions by name, the default one first. Read from the

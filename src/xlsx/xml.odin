@@ -1,5 +1,7 @@
 package xlsx
 
+// A tiny pull-style XML reader, just enough for the files inside a workbook.
+
 import "core:strconv"
 import "core:strings"
 

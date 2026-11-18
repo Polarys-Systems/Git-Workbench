@@ -1,5 +1,7 @@
 package git
 
+// Credential callbacks for libgit2: username/password and SSH keys.
+
 import "core:c"
 
 // For HTTPS authentication; password may be a personal access token.

@@ -1,5 +1,8 @@
 package gpu
 
+// Public API types of the small Vulkan wrapper: devices, buffers, textures,
+// pipelines, bindings and result codes.
+
 import SDL "vendor:sdl3"
 import vk "vendor:vulkan"
 

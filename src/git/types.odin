@@ -1,5 +1,7 @@
 package git
 
+// libgit2 structs, enums and constants mirrored for Odin (libgit2 2.0 ABI).
+
 import "core:c"
 
 // These bindings match the vendored libgit2 2.0.0-rc.1 headers, not libgit2 1.x.

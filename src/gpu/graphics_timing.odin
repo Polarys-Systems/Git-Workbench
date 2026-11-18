@@ -1,5 +1,7 @@
 package gpu
 
+// Optional GPU timestamp queries for measuring frame sections.
+
 import vk "vendor:vulkan"
 
 @(private = "package")

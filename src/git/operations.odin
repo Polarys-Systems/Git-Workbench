@@ -1,5 +1,8 @@
 package git
 
+// Higher-level Git operations built on libgit2: fetch, stage, commit,
+// push (with a force-with-lease check) and pull (merge or rebase).
+
 import "core:c"
 
 // The returned string borrows libgit2's thread-local storage. Copy it before
